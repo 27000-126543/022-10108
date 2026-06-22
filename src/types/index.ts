@@ -318,10 +318,22 @@ export const TIMELINE_STEP_LABELS: Record<TimelineStep, string> = {
   doctor_reassigned: '改派医生',
 };
 
-export const WAIT_TIMEOUT_CONFIG: Record<RiskLevel, { warning: number; critical: number }> = {
-  high:   { warning: 20, critical: 40 },
-  medium: { warning: 40, critical: 60 },
-  low:    { warning: 60, critical: 90 },
+export const WAIT_TIMEOUT_CONFIG: Record<DepartmentType, Record<RiskLevel, { warning: number; critical: number }>> = {
+  skin: {
+    high:   { warning: 15, critical: 30 },
+    medium: { warning: 30, critical: 50 },
+    low:    { warning: 50, critical: 80 },
+  },
+  injection: {
+    high:   { warning: 20, critical: 40 },
+    medium: { warning: 40, critical: 60 },
+    low:    { warning: 60, critical: 90 },
+  },
+  surgery: {
+    high:   { warning: 30, critical: 60 },
+    medium: { warning: 60, critical: 90 },
+    low:    { warning: 90, critical: 120 },
+  },
 };
 
 

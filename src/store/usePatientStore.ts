@@ -60,7 +60,7 @@ const buildInitialQueues = (patients: Patient[]) => {
     if (patient.department && patient.queueNumber && 
         (patient.status === 'waiting' || patient.status === 'consulting')) {
       const waitTime = calculateWaitTime(patient.createdAt);
-      const timeoutConfig = WAIT_TIMEOUT_CONFIG[patient.riskLevel];
+      const timeoutConfig = WAIT_TIMEOUT_CONFIG[patient.department!][patient.riskLevel];
       let timeoutLevel: TimeoutLevel = 'normal';
       if (waitTime >= timeoutConfig.critical) timeoutLevel = 'critical';
       else if (waitTime >= timeoutConfig.warning) timeoutLevel = 'warning';
@@ -164,6 +164,23 @@ const verifyIdStatus = (patient: Partial<Patient>): Partial<Patient> => {
     return { idVerified: true, idVerifiedAt: new Date() };
   }
   return {};
+};
+
+const syncPatientIntoQueues = (
+  queues: { skin: QueueItem[]; injection: QueueItem[]; surgery: QueueItem[] },
+  patientId: string,
+  patientPatch: Partial<Patient>
+) => {
+  const newQueues = { ...queues };
+  (Object.keys(newQueues) as DepartmentType[]).forEach(dept => {
+    newQueues[dept] = newQueues[dept].map(item => {
+      if (item.patientId === patientId) {
+        return { ...item, patient: { ...item.patient, ...patientPatch } };
+      }
+      return item;
+    });
+  });
+  return newQueues;
 };
 
 const calculateInitialStats = (patients: Patient[]): DashboardStats => {
@@ -292,13 +309,22 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       }
     }
 
+    const finalPatch = { 
+      ...data, 
+      ...extraUpdates, 
+      timeline: newTimeline.length > 0 && newTimeline !== patient?.timeline 
+        ? newTimeline 
+        : patient?.timeline || [] 
+    };
+
     set((state) => ({
       patients: state.patients.map(p => 
-        p.id === id ? { ...p, ...data, ...extraUpdates, timeline: newTimeline.length > 0 && newTimeline !== p.timeline ? newTimeline : p.timeline } : p
+        p.id === id ? { ...p, ...finalPatch } : p
       ),
       currentPatient: state.currentPatient?.id === id 
-        ? { ...state.currentPatient, ...data, ...extraUpdates, timeline: newTimeline.length > 0 ? newTimeline : state.currentPatient.timeline }
+        ? { ...state.currentPatient, ...finalPatch }
         : state.currentPatient,
+      queues: syncPatientIntoQueues(state.queues, id, finalPatch),
     }));
     get().calculateStats();
   },
@@ -309,13 +335,20 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('demand_collected', '前台小王', '前台', '诉求信息采集完成')]
       : [];
 
+    const finalPatch = { 
+      ...data, 
+      status: 'pending_risk' as PatientStatus, 
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [] 
+    };
+
     set((state) => ({
       patients: state.patients.map(p => 
-        p.id === id ? { ...p, ...data, status: 'pending_risk', timeline: newTimeline.length > 0 ? newTimeline : p.timeline } : p
+        p.id === id ? { ...p, ...finalPatch } : p
       ),
       currentPatient: state.currentPatient?.id === id 
-        ? { ...state.currentPatient, ...data, status: 'pending_risk', timeline: newTimeline.length > 0 ? newTimeline : state.currentPatient.timeline }
+        ? { ...state.currentPatient, ...finalPatch }
         : state.currentPatient,
+      queues: syncPatientIntoQueues(state.queues, id, finalPatch),
     }));
   },
 
@@ -328,13 +361,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       'risk_assessed', '护士小李', '护士', factors.length > 0 ? `风险评估完成，共${factors.length}项风险点` : '风险评估完成，无异常'
     )];
 
+    const finalPatch = {
+      riskLevel: level as RiskLevel,
+      riskFactors: factors,
+      status: 'pending_triaging' as PatientStatus,
+      timeline: newTimeline,
+    };
+
     set((state) => ({
       patients: state.patients.map(p => 
-        p.id === id ? { ...p, riskLevel: level, riskFactors: factors, status: 'pending_triaging', timeline: newTimeline } : p
+        p.id === id ? { ...p, ...finalPatch } : p
       ),
       currentPatient: state.currentPatient?.id === id 
-        ? { ...state.currentPatient, riskLevel: level, riskFactors: factors, status: 'pending_triaging', timeline: newTimeline }
+        ? { ...state.currentPatient, ...finalPatch }
         : state.currentPatient,
+      queues: syncPatientIntoQueues(state.queues, id, finalPatch),
     }));
   },
 
@@ -422,15 +463,19 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('called', '护士小李', '护士', `叫号就诊，号码${queueItem!.queueNumber}`)]
       : [];
 
+    const patientPatch = {
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [],
+    };
+
     set((state) => ({
       queues: {
         ...state.queues,
         [department!]: state.queues[department!].map(item => 
-          item.id === queueId ? { ...item, status: 'called' as QueueStatus, calledAt: new Date() } : item
+          item.id === queueId ? { ...item, status: 'called' as QueueStatus, calledAt: new Date(), patient: { ...item.patient, ...patientPatch } } : item
         ),
       },
       patients: newTimeline.length > 0
-        ? state.patients.map(p => p.id === patientId ? { ...p, timeline: newTimeline } : p)
+        ? state.patients.map(p => p.id === patientId ? { ...p, ...patientPatch } : p)
         : state.patients,
     }));
   },
@@ -456,16 +501,23 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('consulting_started', doctorName, '医生', `进入${room}开始面诊`)]
       : [];
 
+    const patientPatch = {
+      status: 'consulting' as PatientStatus,
+      consultationRoom: room,
+      consultedAt: new Date(),
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [],
+    };
+
     set((state) => ({
       queues: {
         ...state.queues,
         [department!]: state.queues[department!].map(item => 
-          item.id === queueId ? { ...item, status: 'consulting' as QueueStatus, consultationRoom: room, consultingAt: new Date() } : item
+          item.id === queueId ? { ...item, status: 'consulting' as QueueStatus, consultationRoom: room, consultingAt: new Date(), patient: { ...item.patient, ...patientPatch } } : item
         ),
       },
       patients: state.patients.map(p => 
         p.id === patientId 
-          ? { ...p, status: 'consulting' as PatientStatus, consultationRoom: room, consultedAt: new Date(), timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          ? { ...p, ...patientPatch }
           : p
       ),
     }));
@@ -493,16 +545,22 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('completed', '接诊医生', '医生', '面诊完成，已给出方案建议')]
       : [];
 
+    const patientPatch = {
+      status: 'completed' as PatientStatus,
+      completedAt: new Date(),
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [],
+    };
+
     set((state) => ({
       queues: {
         ...state.queues,
         [department!]: state.queues[department!].map(item => 
-          item.id === queueId ? { ...item, status: 'completed' as QueueStatus, completedAt: new Date() } : item
+          item.id === queueId ? { ...item, status: 'completed' as QueueStatus, completedAt: new Date(), patient: { ...item.patient, ...patientPatch } } : item
         ),
       },
       patients: state.patients.map(p => 
         p.id === patientId 
-          ? { ...p, status: 'completed' as PatientStatus, completedAt: new Date(), timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          ? { ...p, ...patientPatch }
           : p
       ),
     }));
@@ -561,16 +619,23 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   },
 
   addTimelineRecord: (patientId, step, note, handler = '系统', handlerRole = '系统') => {
-    set((state) => ({
-      patients: state.patients.map(p => 
-        p.id === patientId 
-          ? { ...p, timeline: [...p.timeline, createTimelineRecord(step, handler, handlerRole, note)] }
-          : p
-      ),
-      currentPatient: state.currentPatient?.id === patientId
-        ? { ...state.currentPatient, timeline: [...state.currentPatient.timeline, createTimelineRecord(step, handler, handlerRole, note)] }
-        : state.currentPatient,
-    }));
+    set((state) => {
+      const patient = state.patients.find(p => p.id === patientId);
+      const newTimeline = patient
+        ? [...patient.timeline, createTimelineRecord(step, handler, handlerRole, note)]
+        : [];
+      return {
+        patients: state.patients.map(p => 
+          p.id === patientId 
+            ? { ...p, timeline: newTimeline }
+            : p
+        ),
+        currentPatient: state.currentPatient?.id === patientId
+          ? { ...state.currentPatient, timeline: newTimeline }
+          : state.currentPatient,
+        queues: syncPatientIntoQueues(state.queues, patientId, { timeline: newTimeline }),
+      };
+    });
   },
 
   calculateStats: () => {
@@ -604,7 +669,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
   getTimeoutLevel: (queueItem) => {
     const waitTime = calculateWaitTime(queueItem.createdAt);
-    const config = WAIT_TIMEOUT_CONFIG[queueItem.patient.riskLevel];
+    const config = WAIT_TIMEOUT_CONFIG[queueItem.department][queueItem.patient.riskLevel];
     if (waitTime >= config.critical) return 'critical';
     if (waitTime >= config.warning) return 'warning';
     return 'normal';
@@ -650,6 +715,11 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('recalled', '护士小李', '护士', '等待超时，重新呼叫顾客')]
       : [];
 
+    const patientPatch = {
+      status: 'waiting' as PatientStatus,
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [],
+    };
+
     set((state) => ({
       queues: {
         ...state.queues,
@@ -660,12 +730,13 @@ export const usePatientStore = create<PatientState>((set, get) => ({
             calledAt: new Date(),
             timeoutLevel: 'normal',
             waitTime: calculateWaitTime(item.createdAt),
+            patient: { ...item.patient, ...patientPatch },
           } : item
         ),
       },
       patients: state.patients.map(p => 
         p.id === patientId 
-          ? { ...p, status: 'waiting' as PatientStatus, timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          ? { ...p, ...patientPatch }
           : p
       ),
     }));
@@ -697,16 +768,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ? [...patient.timeline, createTimelineRecord('doctor_reassigned', '护士小李', '护士', `${originalDoctorName} → ${newDoctorName}`)]
       : [];
 
+    const patientPatch = {
+      assignedDoctor: newDoctorId,
+      timeline: newTimeline.length > 0 ? newTimeline : patient?.timeline || [],
+    };
+
     set((state) => ({
       queues: {
         ...state.queues,
         [department!]: state.queues[department!].map(item => 
-          item.id === queueId ? { ...item, doctorId: newDoctorId } : item
+          item.id === queueId ? { ...item, doctorId: newDoctorId, patient: { ...item.patient, ...patientPatch } } : item
         ),
       },
       patients: state.patients.map(p => 
         p.id === patientId 
-          ? { ...p, assignedDoctor: newDoctorId, timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          ? { ...p, ...patientPatch }
           : p
       ),
     }));
@@ -751,15 +827,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       : '科室交接单已生成';
     const newTimeline = [...patient.timeline, createTimelineRecord('handover_sent', fromHandler, fromRole, handoverNote)];
 
+    const patientPatch = {
+      lastHandover: handover,
+      timeline: newTimeline,
+    };
+
     set((state) => ({
       patients: state.patients.map(p => 
         p.id === patientId 
-          ? { ...p, lastHandover: handover, timeline: newTimeline }
+          ? { ...p, ...patientPatch }
           : p
       ),
       currentPatient: state.currentPatient?.id === patientId
-        ? { ...state.currentPatient, lastHandover: handover, timeline: newTimeline }
+        ? { ...state.currentPatient, ...patientPatch }
         : state.currentPatient,
+      queues: syncPatientIntoQueues(state.queues, patientId, patientPatch),
     }));
 
     return handover;

@@ -303,7 +303,7 @@ const WaitingQueue = () => {
               }`}>
                 <Clock size={14} />
                 等待 {formatMinutes(item.waitTime)}
-                {isCriticalTimeout && <span className="text-xs text-danger-500">（超过 {WAIT_TIMEOUT_CONFIG[item.patient.riskLevel].critical}分钟）</span>}
+                {isCriticalTimeout && <span className="text-xs text-danger-500">（超过 {WAIT_TIMEOUT_CONFIG[item.department][item.patient.riskLevel].critical}分钟）</span>}
               </span>
               <span className="flex items-center gap-1">
                 <Users size={14} />
@@ -447,7 +447,7 @@ const WaitingQueue = () => {
                       </p>
                       <p className="text-xs text-neutral-500">
                         已等待 {formatMinutes(item.waitTime)}，{RISK_LABELS[item.patient.riskLevel]}
-                        顾客建议阈值 {WAIT_TIMEOUT_CONFIG[item.patient.riskLevel].critical} 分钟
+                        顾客{isCriticalTimeout ? '严重' : '警告'}阈值 {WAIT_TIMEOUT_CONFIG[item.department][item.patient.riskLevel][isCriticalTimeout ? 'critical' : 'warning']} 分钟
                       </p>
                     </div>
                   </div>
@@ -577,7 +577,45 @@ const WaitingQueue = () => {
                 </div>
               )}
 
-              {(sentHandovers.has(item.patientId) || item.patient.lastHandover ? null : (
+              {item.patient.lastHandover ? (
+                <div className="p-3 rounded-xl bg-primary-50 border border-primary-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1">
+                      <CheckCheck size={12} className="text-primary-600" />
+                      <span className="text-xs font-semibold text-primary-700">交接单已发送</span>
+                    </div>
+                    <span className="text-[10px] text-primary-500">
+                      {new Date(item.patient.lastHandover.createdAt).toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'})}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[11px] mb-2">
+                    <div>
+                      <span className="text-neutral-500">发送人：</span>
+                      <span className="text-neutral-700">{item.patient.lastHandover.fromHandler}</span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-500">接收：</span>
+                      <span className="text-neutral-700">{item.patient.lastHandover.toDoctorName || DEPARTMENT_LABELS[item.department]}</span>
+                    </div>
+                  </div>
+                  {item.patient.lastHandover.summary.riskSuggestions.length > 0 && (
+                    <div className="mb-1.5">
+                      <p className="text-[10px] text-neutral-500 mb-0.5">处理建议</p>
+                      <div className="space-y-0.5">
+                        {item.patient.lastHandover.summary.riskSuggestions.slice(0, 2).map((s: string, i: number) => (
+                          <p key={i} className="text-[11px] text-neutral-600 pl-2 border-l-2 border-primary-200">{s}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {item.patient.lastHandover.note && (
+                    <div>
+                      <span className="text-[10px] text-neutral-500">护士备注：</span>
+                      <span className="text-[11px] text-neutral-700">{item.patient.lastHandover.note}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <>
                   <textarea
                     value={handoverNotes[item.patientId] || ''}
@@ -596,7 +634,6 @@ const WaitingQueue = () => {
                         fromRole: '护士',
                         fromHandler: '护士小李',
                       });
-                      setSentHandovers(prev => new Set(prev).add(item.patientId));
                     }}
                     disabled={!item.doctorId && false}
                     className="w-full py-2 text-xs font-medium rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 transition-all flex items-center justify-center gap-1 disabled:opacity-60"
@@ -605,7 +642,7 @@ const WaitingQueue = () => {
                     {item.doctorId ? `发送给 ${getDoctorName(item.doctorId)}` : '发送至科室'}
                   </button>
                 </>
-              ))}
+              )}
             </div>
 
             {renderTimeline(item.patient.timeline)}
