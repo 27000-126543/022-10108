@@ -15,12 +15,15 @@ import {
   Star,
   ArrowRight,
   AlertCircle,
-  BadgeCheck
+  BadgeCheck,
+  ShieldCheck,
+  AlertTriangle,
+  Activity,
+  FileText,
+  History
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
-import { DEPARTMENT_LABELS, DepartmentType, Doctor } from '@/types';
-import { getRiskColor } from '@/utils/format';
-import { RISK_LABELS } from '@/types';
+import { DEPARTMENT_LABELS, DepartmentType, Doctor, RISK_SUGGESTIONS, RISK_LABELS } from '@/types';
 
 const DepartmentTriaging = () => {
   const navigate = useNavigate();
@@ -125,6 +128,22 @@ const DepartmentTriaging = () => {
     return colors[color] || colors.success;
   };
 
+  const getSuggestionColorClass = (color: string) => {
+    const map: Record<string, { header: string; badge: string; tip: string }> = {
+      danger: {
+        header: 'bg-gradient-to-r from-danger-50 to-danger-100 border-danger-200',
+        badge: 'bg-danger-100 text-danger-700',
+        tip: 'text-danger-600',
+      },
+      warning: {
+        header: 'bg-gradient-to-r from-warning-50 to-warning-100 border-warning-200',
+        badge: 'bg-warning-100 text-warning-700',
+        tip: 'text-warning-600',
+      },
+    };
+    return map[color] || map.warning;
+  };
+
   const handleConfirmTriaging = () => {
     if (selectedPatient && selectedDepartment) {
       addToQueue(selectedPatient.id, selectedDepartment, selectedDoctor || undefined);
@@ -134,6 +153,24 @@ const DepartmentTriaging = () => {
 
   const handleGoToQueue = () => {
     navigate('/queue');
+  };
+
+  const formatTime = (date: Date) => {
+    return new Date(date).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getTimelineStepIcon = (step: string) => {
+    switch (step) {
+      case 'registered': return <User size={14} />;
+      case 'id_verified': return <ShieldCheck size={14} />;
+      case 'demand_collected': return <FileText size={14} />;
+      case 'risk_assessed': return <AlertTriangle size={14} />;
+      case 'triaged': return <Stethoscope size={14} />;
+      case 'called': return <Users size={14} />;
+      case 'consulting_started': return <Activity size={14} />;
+      case 'completed': return <CheckCircle size={14} />;
+      default: return <Clock size={14} />;
+    }
   };
 
   if (!selectedPatient) {
@@ -154,11 +191,14 @@ const DepartmentTriaging = () => {
     );
   }
 
+  const riskFactorKeys = selectedPatient.riskFactors || [];
+  const hasRisk = riskFactorKeys.length > 0;
+
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       {/* 顾客信息栏 */}
       <div className="card mb-6">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           {selectedPatient.avatar ? (
             <img src={selectedPatient.avatar} alt="" className="w-14 h-14 rounded-full" />
           ) : (
@@ -166,8 +206,8 @@ const DepartmentTriaging = () => {
               {selectedPatient.name?.charAt(0) || '顾'}
             </div>
           )}
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-semibold text-neutral-800">
                 {selectedPatient.name}
               </h2>
@@ -178,6 +218,17 @@ const DepartmentTriaging = () => {
               }`}>
                 {RISK_LABELS[selectedPatient.riskLevel]}
               </span>
+              {selectedPatient.idVerified && (
+                <span className="px-2 py-0.5 text-xs bg-success-100 text-success-700 rounded-full flex items-center gap-1 font-medium">
+                  <ShieldCheck size={12} />
+                  已核验
+                </span>
+              )}
+              {selectedPatient.isNew && (
+                <span className="px-2 py-0.5 text-xs bg-accent-100 text-accent-700 rounded-full">
+                  新客
+                </span>
+              )}
             </div>
             <p className="text-sm text-neutral-500 mt-1">
               {selectedPatient.phone} · {selectedPatient.age}岁 · {selectedPatient.gender === 'female' ? '女' : '男'}
@@ -191,6 +242,26 @@ const DepartmentTriaging = () => {
             </p>
           </div>
         </div>
+
+        {/* 风险因素标签行 */}
+        {hasRisk && (
+          <div className="mt-4 pt-4 border-t border-neutral-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-neutral-500">风险因素：</span>
+              {riskFactorKeys.map((factor, idx) => (
+                <span
+                  key={idx}
+                  className={`px-3 py-1 text-xs font-medium rounded-full ${
+                    selectedPatient.riskLevel === 'high' ? 'bg-danger-100 text-danger-700' :
+                    'bg-warning-100 text-warning-700'
+                  }`}
+                >
+                  {factor}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -350,10 +421,124 @@ const DepartmentTriaging = () => {
               </div>
             </div>
           )}
+
+          {/* 流转时间线 */}
+          <div className="card">
+            <h3 className="text-lg font-semibold text-neutral-800 mb-4 flex items-center gap-2">
+              <History size={20} className="text-primary-600" />
+              顾客流转记录
+              <span className="text-xs font-normal text-neutral-400 ml-auto">
+                共 {selectedPatient.timeline?.length || 0} 条
+              </span>
+            </h3>
+
+            <div className="relative pl-6">
+              <div className="absolute left-2.5 top-2 bottom-2 w-px bg-gradient-to-b from-primary-200 via-accent-200 to-neutral-200" />
+              
+              {(selectedPatient.timeline || []).map((record, index) => (
+                <div key={record.id} className="relative pb-5 last:pb-0">
+                  <div className={`absolute -left-3.5 w-6 h-6 rounded-full flex items-center justify-center z-10 ${
+                    index === 0 ? 'bg-gradient-to-br from-primary-500 to-accent-500 text-white' : 'bg-white border-2 border-neutral-200 text-neutral-500'
+                  }`}>
+                    {getTimelineStepIcon(record.step)}
+                  </div>
+                  <div className={`rounded-xl p-4 ${index === 0 ? 'bg-primary-50/50 border border-primary-100' : 'bg-neutral-50'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-neutral-800">{record.stepLabel}</p>
+                      <span className="text-xs text-neutral-400 flex items-center gap-1">
+                        <Clock size={11} />
+                        {formatTime(record.timestamp)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-neutral-500">
+                      <span className="flex items-center gap-1">
+                        <User size={11} />
+                        {record.handler}
+                      </span>
+                      <span className="px-2 py-0.5 bg-white rounded-full text-neutral-500">
+                        {record.handlerRole}
+                      </span>
+                    </div>
+                    {record.note && (
+                      <p className="text-xs text-neutral-500 mt-2 pl-2 border-l-2 border-neutral-200">
+                        {record.note}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* 右侧：分诊确认 */}
+        {/* 右侧：分诊确认 + 风险处理建议 */}
         <div className="space-y-6">
+          {/* 高风险提醒 + 处理建议 */}
+          {hasRisk && (
+            <div className="space-y-3">
+              <div className={`card border-l-4 ${
+                selectedPatient.riskLevel === 'high'
+                  ? 'border-l-danger-500 bg-gradient-to-br from-danger-50/70 to-white'
+                  : 'border-l-warning-500 bg-gradient-to-br from-warning-50/70 to-white'
+              }`}>
+                <div className="flex items-center gap-2 mb-3">
+                  {selectedPatient.riskLevel === 'high' ? (
+                    <AlertTriangle size={20} className="text-danger-600" />
+                  ) : (
+                    <AlertCircle size={20} className="text-warning-600" />
+                  )}
+                  <h3 className={`text-base font-semibold ${
+                    selectedPatient.riskLevel === 'high' ? 'text-danger-700' : 'text-warning-700'
+                  }`}>
+                    {selectedPatient.riskLevel === 'high' ? '高风险顾客，需重点关注' : '存在风险点，提醒医生'}
+                  </h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {riskFactorKeys.map((factor, idx) => (
+                    <span
+                      key={idx}
+                      className={`px-3 py-1 text-xs font-medium rounded-full ${
+                        selectedPatient.riskLevel === 'high'
+                          ? 'bg-danger-100 text-danger-700'
+                          : 'bg-warning-100 text-warning-700'
+                      }`}
+                    >
+                      {factor}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {riskFactorKeys.map((factor, idx) => {
+                const suggestion = RISK_SUGGESTIONS[factor];
+                if (!suggestion) return null;
+                const colorClass = getSuggestionColorClass(suggestion.color);
+                return (
+                  <div key={idx} className={`card rounded-xl border ${colorClass.header}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className={`text-sm font-semibold ${
+                        suggestion.color === 'danger' ? 'text-danger-700' : 'text-warning-700'
+                      }`}>
+                        {suggestion.title}
+                      </h4>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${colorClass.badge}`}>
+                        #{idx + 1}
+                      </span>
+                    </div>
+                    <ul className="space-y-2">
+                      {suggestion.tips.map((tip, tipIdx) => (
+                        <li key={tipIdx} className={`text-xs flex items-start gap-2 ${colorClass.tip}`}>
+                          <span className="w-1.5 h-1.5 rounded-full mt-1 shrink-0 bg-current" />
+                          <span className="text-neutral-700">{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* 分诊概览 */}
           <div className="card bg-gradient-to-br from-primary-50 to-accent-50 border-2 border-primary-100">
             <h3 className="text-lg font-semibold text-neutral-800 mb-4">分诊确认</h3>
@@ -365,6 +550,18 @@ const DepartmentTriaging = () => {
               </div>
               
               <div className="flex items-center justify-between">
+                <span className="text-sm text-neutral-500">身份核验</span>
+                {selectedPatient.idVerified ? (
+                  <span className="font-medium text-success-600 flex items-center gap-1">
+                    <ShieldCheck size={14} />
+                    已核验
+                  </span>
+                ) : (
+                  <span className="font-medium text-neutral-400">待核验</span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
                 <span className="text-sm text-neutral-500">风险等级</span>
                 <span className={`font-medium ${
                   selectedPatient.riskLevel === 'high' ? 'text-danger-600' :
@@ -374,6 +571,24 @@ const DepartmentTriaging = () => {
                   {RISK_LABELS[selectedPatient.riskLevel]}
                 </span>
               </div>
+
+              {hasRisk && (
+                <div>
+                  <span className="text-sm text-neutral-500 block mb-2">风险点数量</span>
+                  <div className="flex flex-wrap gap-1">
+                    {riskFactorKeys.slice(0, 3).map((factor, i) => (
+                      <span key={i} className="px-2 py-0.5 text-xs bg-white rounded-full text-neutral-600 border border-primary-200">
+                        {factor}
+                      </span>
+                    ))}
+                    {riskFactorKeys.length > 3 && (
+                      <span className="px-2 py-0.5 text-xs bg-white rounded-full text-neutral-500 border border-neutral-200">
+                        +{riskFactorKeys.length - 3}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-primary-200 pt-4">
                 <div className="flex items-center justify-between">
@@ -440,7 +655,7 @@ const DepartmentTriaging = () => {
               <div className="p-5 bg-success-50 rounded-2xl border border-success-200 text-center">
                 <CheckCircle size={32} className="mx-auto mb-2 text-success-500" />
                 <p className="font-medium text-success-700">分诊完成</p>
-                <p className="text-sm text-success-600 mt-1">已加入候诊队列</p>
+                <p className="text-sm text-success-600 mt-1">已加入候诊队列，风险提醒已同步至医生端</p>
               </div>
               <button
                 onClick={handleGoToQueue}

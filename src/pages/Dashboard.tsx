@@ -16,7 +16,8 @@ import {
   Sparkles,
   Syringe,
   Scissors,
-  ArrowUpRight
+  ArrowUpRight,
+  ShieldCheck
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
 import { STATUS_LABELS, DEPARTMENT_LABELS } from '@/types';
@@ -24,7 +25,7 @@ import { formatMinutes, getStatusColor, getRiskColor } from '@/utils/format';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { stats, patients, queues, getIncompletePatients, markNoShow, markRescheduled, sendRouteNotification } = usePatientStore();
+  const { stats, patients, queues, getIncompletePatients, markNoShow, markRescheduled, sendRouteNotification, setCurrentPatient } = usePatientStore();
 
   const incompletePatients = getIncompletePatients();
   
@@ -222,11 +223,17 @@ const Dashboard = () => {
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-neutral-800">{patient.name}</p>
                       <span className={`badge-${getRiskColor(patient.riskLevel)}`}>
                         {patient.riskLevel === 'low' ? '低风险' : patient.riskLevel === 'medium' ? '中风险' : '高风险'}
                       </span>
+                      {patient.idVerified && (
+                        <span className="px-1.5 py-px text-[10px] bg-success-100 text-success-700 rounded-full flex items-center gap-0.5">
+                          <ShieldCheck size={10} />
+                          已核验
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-neutral-500">{DEPARTMENT_LABELS[patient.department || 'skin']}</p>
                   </div>
@@ -282,6 +289,7 @@ const Dashboard = () => {
                     key={patient.id}
                     className="flex items-center gap-3 p-3 rounded-xl bg-warning-50/50 border border-warning-100 cursor-pointer hover:bg-warning-50 transition-colors"
                     onClick={() => {
+                      setCurrentPatient(patient);
                       if (patient.status === 'registered' || patient.status === 'pending_demand') {
                         navigate('/demand');
                       } else if (patient.status === 'pending_risk') {
@@ -295,7 +303,15 @@ const Dashboard = () => {
                       <AlertCircle size={18} className="text-warning-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-neutral-800 truncate">{patient.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-medium text-neutral-800 truncate">{patient.name}</p>
+                        {patient.idVerified && (
+                          <span className="px-1.5 py-px text-[10px] bg-success-100 text-success-700 rounded-full flex items-center gap-0.5">
+                            <ShieldCheck size={10} />
+                            已核验
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-neutral-500">{STATUS_LABELS[patient.status]}</p>
                     </div>
                     <ArrowUpRight size={16} className="text-neutral-400" />

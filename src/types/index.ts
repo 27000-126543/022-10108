@@ -22,6 +22,28 @@ export type EffectRating = 'good' | 'average' | 'poor';
 
 export type QueueStatus = 'waiting' | 'called' | 'consulting' | 'completed';
 
+export type TimelineStep =
+  | 'registered'
+  | 'demand_collected'
+  | 'risk_assessed'
+  | 'triaged'
+  | 'called'
+  | 'consulting_started'
+  | 'completed'
+  | 'no_show'
+  | 'rescheduled'
+  | 'id_verified';
+
+export interface TimelineRecord {
+  id: string;
+  step: TimelineStep;
+  stepLabel: string;
+  handler: string;
+  handlerRole: '前台' | '护士' | '分诊台' | '医生' | '系统';
+  timestamp: Date;
+  note?: string;
+}
+
 export interface MedicalHistory {
   id: string;
   procedure: string;
@@ -72,6 +94,7 @@ export interface Patient {
   consultedAt?: Date;
   completedAt?: Date;
   notes?: string;
+  timeline: TimelineRecord[];
 }
 
 export interface Doctor {
@@ -187,3 +210,78 @@ export const COMMON_PROCEDURES = [
   '点阵激光', '皮秒激光', '吸脂', '隆胸',
   '线雕', '瘦脸针', '下颌缘提升',
 ];
+
+export const RISK_SUGGESTIONS: Record<string, { title: string; color: string; tips: string[] }> = {
+  '妊娠期': {
+    title: '妊娠期禁忌',
+    color: 'danger',
+    tips: [
+      '严禁进行任何有创医美操作',
+      '推迟至哺乳期结束后再面诊',
+      '可提供术后恢复期参考资料',
+    ],
+  },
+  '哺乳期': {
+    title: '哺乳期注意',
+    color: 'warning',
+    tips: [
+      '避免使用麻药和口服药物',
+      '激光、光子类项目需谨慎评估',
+      '注射类项目建议哺乳期结束后进行',
+    ],
+  },
+  '心脏疾病': {
+    title: '心脏疾病高风险',
+    color: 'danger',
+    tips: [
+      '需提供近期心内科检查报告',
+      '操作前必须心电图检查',
+      '建议在心电监护下进行操作',
+      '严禁全麻，慎用局麻药含肾上腺素',
+    ],
+  },
+  '高血压': {
+    title: '高血压提醒',
+    color: 'warning',
+    tips: [
+      '操作前测量血压，高于150/90需推迟',
+      '确认患者规律服用降压药',
+      '避免使用含肾上腺素的局麻药',
+      '术中监测血压变化',
+    ],
+  },
+  '糖尿病': {
+    title: '糖尿病提醒',
+    color: 'warning',
+    tips: [
+      '术前需检测空腹血糖（控制在8mmol/L以下）',
+      '确认规律用药，注意低血糖预防',
+      '有创项目需预防性使用抗生素',
+      '加强术后伤口护理，预防感染',
+    ],
+  },
+  '疤痕体质': {
+    title: '疤痕体质提示',
+    color: 'warning',
+    tips: [
+      '尽量选择非手术/微创方案',
+      '手术项目需签署疤痕增生知情同意',
+      '术后提前使用抗疤痕药物',
+      '可配合激光预防疤痕增生',
+    ],
+  },
+};
+
+export const TIMELINE_STEP_LABELS: Record<TimelineStep, string> = {
+  registered: '到院登记',
+  demand_collected: '诉求采集完成',
+  risk_assessed: '风险评估完成',
+  triaged: '科室分诊完成',
+  called: '已叫号',
+  consulting_started: '开始面诊',
+  completed: '面诊完成',
+  no_show: '标记爽约',
+  rescheduled: '已改约',
+  id_verified: '身份核验通过',
+};
+
