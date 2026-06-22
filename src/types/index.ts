@@ -52,6 +52,14 @@ export interface Patient {
   allergies: Allergy[];
   isPregnant: boolean;
   isLactating: boolean;
+  hasHypertension: boolean;
+  hasDiabetes: boolean;
+  hasKeloid: boolean;
+  hasHeartCondition: boolean;
+  idVerified: boolean;
+  idPhotoTaken: boolean;
+  idOcrDone: boolean;
+  idVerifiedAt?: Date;
   riskLevel: RiskLevel;
   riskFactors: string[];
   status: PatientStatus;

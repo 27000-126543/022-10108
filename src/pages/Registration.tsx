@@ -1,26 +1,31 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  UserPlus, 
-  QrCode, 
-  Camera, 
-  Phone, 
+import {
+  UserPlus,
+  QrCode,
+  Camera,
+  Phone,
   User,
   Calendar,
   CheckCircle,
   ChevronRight,
   Search,
   Scan,
-  ImagePlus
+  ImagePlus,
+  ShieldCheck,
+  Clock,
+  X,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
-import { Gender } from '@/types';
+import { Gender, Patient } from '@/types';
 
 const Registration = () => {
   const navigate = useNavigate();
-  const { addPatient, patients, setCurrentPatient, currentPatient } = usePatientStore();
-  
+  const { addPatient, patients, setCurrentPatient, currentPatient, updatePatient } = usePatientStore();
+
   const [phone, setPhone] = useState('');
   const [isNewCustomer, setIsNewCustomer] = useState(true);
   const [step, setStep] = useState(1);
@@ -31,6 +36,22 @@ const Registration = () => {
   });
   const [searchResult, setSearchResult] = useState<typeof patients>([]);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showOcrModal, setShowOcrModal] = useState(false);
+  const [photoTaken, setPhotoTaken] = useState(currentPatient?.idPhotoTaken || false);
+  const [ocrDone, setOcrDone] = useState(currentPatient?.idOcrDone || false);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [qrScanning, setQrScanning] = useState(false);
+  const [qrProgress, setQrProgress] = useState(0);
+  const [tempPatient, setTempPatient] = useState<Patient | null>(null);
+
+  useEffect(() => {
+    if (currentPatient) {
+      setPhotoTaken(currentPatient.idPhotoTaken || false);
+      setOcrDone(currentPatient.idOcrDone || false);
+    }
+  }, [currentPatient]);
 
   const handlePhoneSearch = () => {
     if (phone.length < 7) return;
@@ -48,9 +69,44 @@ const Registration = () => {
       age: patient.age.toString(),
       gender: patient.gender,
     });
+    setPhotoTaken(patient.idPhotoTaken || false);
+    setOcrDone(patient.idOcrDone || false);
     setStep(2);
     setIsNewCustomer(false);
   };
+
+  const simulatePhotoCapture = () => {
+    setPhotoLoading(true);
+    setTimeout(() => {
+      setPhotoLoading(false);
+      setPhotoTaken(true);
+      if (currentPatient) {
+        updatePatient(currentPatient.id, { idPhotoTaken: true });
+      }
+      setShowPhotoModal(false);
+    }, 1500);
+  };
+
+  const simulateOcrScan = () => {
+    setOcrLoading(true);
+    setTimeout(() => {
+      setOcrLoading(false);
+      setOcrDone(true);
+      if (!formData.name) {
+        setFormData({
+          ...formData,
+          name: '身份证姓名示例',
+          age: Math.floor(Math.random() * 30 + 20).toString(),
+        });
+      }
+      if (currentPatient) {
+        updatePatient(currentPatient.id, { idOcrDone: true });
+      }
+      setShowOcrModal(false);
+    }, 2000);
+  };
+
+  const isIdVerified = photoTaken && ocrDone;
 
   const handleQuickRegister = () => {
     if (!formData.name || !formData.age) return;
@@ -67,9 +123,17 @@ const Registration = () => {
       allergies: [],
       isPregnant: false,
       isLactating: false,
+      hasHypertension: false,
+      hasDiabetes: false,
+      hasKeloid: false,
+      hasHeartCondition: false,
+      idVerified: isIdVerified,
+      idPhotoTaken: photoTaken,
+      idOcrDone: ocrDone,
+      idVerifiedAt: isIdVerified ? new Date() : undefined,
       riskLevel: 'low' as const,
       riskFactors: [],
-      status: 'registered' as const,
+      status: 'pending_demand' as const,
     };
 
     addPatient(newPatient);
@@ -78,6 +142,65 @@ const Registration = () => {
 
   const handleGoToDemand = () => {
     navigate('/demand');
+  };
+
+  const simulateQrScanFlow = () => {
+    setQrScanning(true);
+    setQrProgress(0);
+
+    const interval = setInterval(() => {
+      setQrProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 10;
+      });
+    }, 400);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      const randomSuffix = Math.floor(Math.random() * 9000 + 1000);
+      const newPatientData = {
+        name: `扫码用户${randomSuffix}`,
+        phone: `138${randomSuffix}${randomSuffix.toString().slice(0, 3)}`,
+        age: Math.floor(Math.random() * 25 + 20),
+        gender: 'female' as Gender,
+        isNew: true,
+        concernedAreas: ['鼻子', '皮肤松弛'],
+        budgetRange: '10000-20000元',
+        medicalHistory: [],
+        allergies: [],
+        isPregnant: false,
+        isLactating: false,
+        hasHypertension: false,
+        hasDiabetes: false,
+        hasKeloid: false,
+        hasHeartCondition: false,
+        idVerified: false,
+        idPhotoTaken: false,
+        idOcrDone: false,
+        riskLevel: 'low' as const,
+        riskFactors: [],
+        status: 'pending_risk' as const,
+      };
+
+      addPatient(newPatientData);
+      setTempPatient({ ...newPatientData, id: `p-${Date.now()}` } as Patient);
+      setQrScanning(false);
+    }, 4500);
+  };
+
+  const handleCloseQrModal = () => {
+    setShowQrModal(false);
+    setQrProgress(0);
+    setQrScanning(false);
+    setTempPatient(null);
+  };
+
+  const handleGoToRisk = () => {
+    handleCloseQrModal();
+    navigate('/risk');
   };
 
   const steps = [
@@ -95,8 +218,8 @@ const Registration = () => {
             <div key={s.num} className="flex items-center">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-medium transition-all duration-300 ${
-                  step >= s.num 
-                    ? 'bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-glow' 
+                  step >= s.num
+                    ? 'bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-glow'
                     : 'bg-neutral-100 text-neutral-400'
                 }`}>
                   {step > s.num ? <CheckCircle size={20} /> : s.num}
@@ -125,7 +248,7 @@ const Registration = () => {
             {step === 1 && (
               <div className="animate-fade-in">
                 <h3 className="text-lg font-semibold text-neutral-800 mb-6">手机号快速登记</h3>
-                
+
                 <div className="mb-6">
                   <div className="flex gap-3 mb-4">
                     <button
@@ -197,6 +320,12 @@ const Registration = () => {
                                   新客
                                 </span>
                               )}
+                              {patient.idVerified && (
+                                <span className="px-2 py-0.5 text-xs bg-success-100 text-success-700 rounded-full flex items-center gap-1">
+                                  <ShieldCheck size={10} />
+                                  已核验
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-neutral-500">{patient.phone}</p>
                           </div>
@@ -230,22 +359,42 @@ const Registration = () => {
             {step === 2 && (
               <div className="animate-fade-in">
                 <h3 className="text-lg font-semibold text-neutral-800 mb-6">填写基本信息</h3>
-                
+
                 <div className="flex gap-6 mb-8">
                   <div className="flex-shrink-0">
                     <div className="relative w-24 h-24">
-                      <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center overflow-hidden">
-                        {currentPatient?.avatar ? (
+                      <div className={`w-24 h-24 rounded-2xl flex items-center justify-center overflow-hidden ${
+                        photoTaken 
+                          ? 'bg-gradient-to-br from-success-100 to-success-200' 
+                          : 'bg-gradient-to-br from-primary-100 to-primary-200'
+                      }`}>
+                        {photoTaken ? (
+                          <div className="text-center">
+                            <CheckCircle size={32} className="mx-auto mb-1 text-success-600" />
+                            <p className="text-xs text-success-700 font-medium">已拍照</p>
+                          </div>
+                        ) : currentPatient?.avatar ? (
                           <img src={currentPatient.avatar} alt="头像" className="w-full h-full object-cover" />
                         ) : (
                           <User size={40} className="text-primary-400" />
                         )}
                       </div>
-                      <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary-500 text-white rounded-full flex items-center justify-center shadow-lg">
+                      <button 
+                        onClick={() => setShowPhotoModal(true)}
+                        className={`absolute -bottom-1 -right-1 w-8 h-8 rounded-full flex items-center justify-center shadow-lg ${
+                          photoTaken 
+                            ? 'bg-success-500 text-white' 
+                            : 'bg-primary-500 text-white hover:bg-primary-600'
+                        }`}
+                      >
                         <Camera size={16} />
                       </button>
                     </div>
-                    <p className="text-xs text-neutral-500 text-center mt-2">点击拍照/上传</p>
+                    <p className={`text-xs text-center mt-2 ${
+                      photoTaken ? 'text-success-600 font-medium' : 'text-neutral-500'
+                    }`}>
+                      {photoTaken ? '已完成拍摄' : '点击拍照/上传'}
+                    </p>
                   </div>
 
                   <div className="flex-1 grid grid-cols-2 gap-4">
@@ -309,18 +458,66 @@ const Registration = () => {
 
                 {/* 身份确认 */}
                 <div className="p-5 rounded-2xl bg-gradient-to-br from-primary-50 to-accent-50 border border-primary-100 mb-6">
-                  <h4 className="font-medium text-neutral-800 mb-3 flex items-center gap-2">
-                    <ImagePlus size={18} className="text-primary-600" />
-                    身份确认
-                  </h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-neutral-800 flex items-center gap-2">
+                      <ShieldCheck size={18} className="text-primary-600" />
+                      身份确认
+                    </h4>
+                    <span className={`text-sm font-medium flex items-center gap-1 ${
+                      isIdVerified ? 'text-success-600' : 'text-neutral-400'
+                    }`}>
+                      {isIdVerified ? (
+                        <>
+                          <CheckCircle size={14} />
+                          身份已核验
+                        </>
+                      ) : '待核验'}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <button className="p-4 bg-white rounded-xl border border-dashed border-primary-300 text-center hover:border-primary-500 hover:bg-primary-50/50 transition-all">
-                      <Camera size={24} className="mx-auto mb-2 text-primary-500" />
-                      <p className="text-sm text-neutral-700">拍照确认</p>
+                    <button
+                      onClick={() => photoTaken ? null : setShowPhotoModal(true)}
+                      className={`p-4 rounded-xl border text-center transition-all ${
+                        photoTaken
+                          ? 'bg-success-50 border-success-300'
+                          : 'bg-white border-dashed border-primary-300 hover:border-primary-500 hover:bg-primary-50/50'
+                      }`}
+                    >
+                      {photoTaken ? (
+                        <div className="animate-fade-in">
+                          <CheckCircle size={24} className="mx-auto mb-2 text-success-500" />
+                          <p className="text-sm text-success-700 font-medium">已拍照确认</p>
+                          <p className="text-xs text-success-500 mt-1">面部照片已采集</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <Camera size={24} className="mx-auto mb-2 text-primary-500" />
+                          <p className="text-sm text-neutral-700">拍照确认</p>
+                          <p className="text-xs text-neutral-400 mt-1">采集面部照片</p>
+                        </div>
+                      )}
                     </button>
-                    <button className="p-4 bg-white rounded-xl border border-dashed border-neutral-300 text-center hover:border-neutral-500 hover:bg-neutral-50 transition-all">
-                      <Scan size={24} className="mx-auto mb-2 text-neutral-500" />
-                      <p className="text-sm text-neutral-700">证件识别</p>
+                    <button
+                      onClick={() => ocrDone ? null : setShowOcrModal(true)}
+                      className={`p-4 rounded-xl border text-center transition-all ${
+                        ocrDone
+                          ? 'bg-success-50 border-success-300'
+                          : 'bg-white border-dashed border-neutral-300 hover:border-neutral-500 hover:bg-neutral-50'
+                      }`}
+                    >
+                      {ocrDone ? (
+                        <div className="animate-fade-in">
+                          <CheckCircle size={24} className="mx-auto mb-2 text-success-500" />
+                          <p className="text-sm text-success-700 font-medium">已完成识别</p>
+                          <p className="text-xs text-success-500 mt-1">证件信息已读取</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <Scan size={24} className="mx-auto mb-2 text-neutral-500" />
+                          <p className="text-sm text-neutral-700">证件识别</p>
+                          <p className="text-xs text-neutral-400 mt-1">自动读取身份信息</p>
+                        </div>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -335,7 +532,7 @@ const Registration = () => {
                   <button
                     onClick={handleQuickRegister}
                     disabled={!formData.name || !formData.age}
-                    className="flex-1 btn-primary py-3"
+                    className="flex-1 btn-primary py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     完成登记，下一步
                     <ChevronRight size={18} className="inline ml-1" />
@@ -352,7 +549,7 @@ const Registration = () => {
                 <h3 className="text-xl font-semibold text-neutral-800 mb-2">登记成功</h3>
                 <p className="text-neutral-500 mb-8">顾客信息已录入系统，请引导顾客填写诉求</p>
 
-                <div className="grid grid-cols-2 gap-4 max-w-md mx-auto mb-8">
+                <div className="grid grid-cols-2 gap-4 max-w-md mx-auto mb-6">
                   <div className="p-4 bg-neutral-50 rounded-xl">
                     <p className="text-sm text-neutral-500">姓名</p>
                     <p className="font-medium text-neutral-800">{formData.name || '顾客'}</p>
@@ -361,11 +558,46 @@ const Registration = () => {
                     <p className="text-sm text-neutral-500">状态</p>
                     <p className="font-medium text-info-600">待填诉求</p>
                   </div>
+                  <div className="p-4 bg-neutral-50 rounded-xl">
+                    <p className="text-sm text-neutral-500 mb-1">身份核验</p>
+                    <div className="flex items-center justify-center gap-1">
+                      {isIdVerified ? (
+                        <>
+                          <ShieldCheck size={14} className="text-success-600" />
+                          <span className="font-medium text-success-700">已核验</span>
+                        </>
+                      ) : (
+                        <span className="font-medium text-neutral-500">待核验</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-4 bg-neutral-50 rounded-xl">
+                    <p className="text-sm text-neutral-500 mb-1">信息完成度</p>
+                    <div className="flex items-center justify-center">
+                      <div className="w-20 h-2 bg-neutral-200 rounded-full overflow-hidden mr-2">
+                        <div
+                          className={`h-full rounded-full ${
+                            isIdVerified ? 'bg-success-500' : 'bg-primary-500'
+                          }`}
+                          style={{ width: isIdVerified ? '100%' : '60%' }}
+                        />
+                      </div>
+                      <span className="font-medium text-neutral-700 text-sm">
+                        {isIdVerified ? '100%' : '60%'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-4 max-w-md mx-auto">
                   <button
-                    onClick={() => setStep(1)}
+                    onClick={() => {
+                      setStep(1);
+                      setFormData({ name: '', age: '', gender: 'female' });
+                      setPhone('');
+                      setPhotoTaken(false);
+                      setOcrDone(false);
+                    }}
                     className="flex-1 px-6 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-600 hover:bg-neutral-50 transition-all"
                   >
                     继续登记
@@ -390,18 +622,22 @@ const Registration = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-neutral-500">今日到院</span>
-                <span className="text-2xl font-bold text-primary-700">10</span>
+                <span className="text-2xl font-bold text-primary-700">{patients.length}</span>
               </div>
               <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
                 <div className="h-full w-3/4 bg-gradient-to-r from-primary-400 to-primary-600 rounded-full" />
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="text-center p-3 bg-accent-50 rounded-xl">
-                  <p className="text-lg font-bold text-accent-600">7</p>
+                  <p className="text-lg font-bold text-accent-600">
+                    {patients.filter(p => p.isNew).length}
+                  </p>
                   <p className="text-xs text-neutral-500">新客</p>
                 </div>
                 <div className="text-center p-3 bg-info-50 rounded-xl">
-                  <p className="text-lg font-bold text-info-600">3</p>
+                  <p className="text-lg font-bold text-info-600">
+                    {patients.filter(p => !p.isNew).length}
+                  </p>
                   <p className="text-xs text-neutral-500">老客</p>
                 </div>
               </div>
@@ -447,34 +683,233 @@ const Registration = () => {
       {/* 扫码建档弹窗 */}
       {showQrModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 animate-slide-up">
-            <h3 className="text-xl font-semibold text-neutral-800 mb-2 text-center">扫码自助建档</h3>
-            <p className="text-sm text-neutral-500 mb-6 text-center">让顾客扫描下方二维码，自助填写信息</p>
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 animate-slide-up max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xl font-semibold text-neutral-800">扫码自助建档</h3>
+              <button
+                onClick={handleCloseQrModal}
+                className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:bg-neutral-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
             
-            <div className="w-64 h-64 mx-auto bg-white border-2 border-neutral-200 rounded-2xl flex items-center justify-center mb-6">
-              <div className="text-center">
-                <QrCode size={120} className="mx-auto text-primary-800 mb-2" />
-                <p className="text-xs text-neutral-400">扫码建档二维码</p>
+            {!qrScanning && !tempPatient && (
+              <>
+                <p className="text-sm text-neutral-500 mb-6 text-center">让顾客扫描下方二维码，自助填写信息</p>
+
+                <div className="w-64 h-64 mx-auto bg-white border-2 border-neutral-200 rounded-2xl flex items-center justify-center mb-6 relative">
+                  <div className="text-center">
+                    <QrCode size={120} className="mx-auto text-primary-800 mb-2" />
+                    <p className="text-xs text-neutral-400">扫码建档二维码</p>
+                  </div>
+                  <div className="absolute inset-2 border-2 border-dashed border-success-300 rounded-xl" />
+                </div>
+
+                <div className="flex gap-2 mb-6">
+                  <div className="flex-1 p-3 bg-neutral-50 rounded-lg text-center">
+                    <p className="text-xs text-neutral-500">有效期</p>
+                    <p className="font-medium text-neutral-700">30分钟</p>
+                  </div>
+                  <div className="flex-1 p-3 bg-neutral-50 rounded-lg text-center">
+                    <p className="text-xs text-neutral-500">填写预计</p>
+                    <p className="font-medium text-neutral-700">3-5分钟</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={simulateQrScanFlow}
+                    className="flex-1 py-3 bg-gradient-to-r from-success-500 to-success-600 text-white rounded-xl
+                             font-medium hover:from-success-600 hover:to-success-700 transition-all
+                             flex items-center justify-center gap-2"
+                  >
+                    <Upload size={18} />
+                    模拟顾客扫码
+                  </button>
+                  <button
+                    onClick={handleCloseQrModal}
+                    className="px-6 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    关闭
+                  </button>
+                </div>
+              </>
+            )}
+
+            {qrScanning && !tempPatient && (
+              <div className="py-12 text-center">
+                <div className="w-24 h-24 mx-auto mb-6 relative">
+                  <div className="absolute inset-0 rounded-full border-4 border-success-200" />
+                  <div
+                    className="absolute inset-0 rounded-full border-4 border-success-500 border-t-transparent animate-spin"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-lg font-bold text-success-600">{qrProgress}%</span>
+                  </div>
+                </div>
+                <p className="text-neutral-700 font-medium mb-1">顾客正在填写资料...</p>
+                <p className="text-sm text-neutral-500">等待顾客提交</p>
               </div>
+            )}
+
+            {tempPatient && (
+              <div className="animate-fade-in">
+                <div className="p-5 bg-success-50 rounded-xl border border-success-200 text-center mb-6">
+                  <CheckCircle size={48} className="mx-auto mb-3 text-success-500" />
+                  <p className="font-semibold text-success-800 mb-1">顾客建档成功！</p>
+                  <p className="text-sm text-success-600">资料已自动同步到系统</p>
+                </div>
+
+                <div className="space-y-3 mb-6">
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <span className="text-sm text-neutral-500">顾客姓名</span>
+                    <span className="font-medium text-neutral-800">{tempPatient.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <span className="text-sm text-neutral-500">联系电话</span>
+                    <span className="font-medium text-neutral-800">{tempPatient.phone}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <span className="text-sm text-neutral-500">当前状态</span>
+                    <span className="px-2 py-0.5 text-xs bg-info-100 text-info-700 rounded-full font-medium">
+                      待风险评估
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <span className="text-sm text-neutral-500">关注部位</span>
+                    <span className="font-medium text-primary-700 text-sm">
+                      {tempPatient.concernedAreas.join('、')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleGoToRisk}
+                    className="flex-1 btn-primary py-3"
+                  >
+                    进入风险评估
+                    <ChevronRight size={18} className="inline ml-1" />
+                  </button>
+                  <button
+                    onClick={handleCloseQrModal}
+                    className="px-6 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    稍后处理
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 拍照弹窗 */}
+      {showPhotoModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-neutral-800">拍照确认身份</h3>
+              <button
+                onClick={() => setShowPhotoModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:bg-neutral-200"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="flex gap-2 mb-6">
-              <div className="flex-1 p-3 bg-neutral-50 rounded-lg text-center">
-                <p className="text-xs text-neutral-500">有效期</p>
-                <p className="font-medium text-neutral-700">30分钟</p>
-              </div>
-              <div className="flex-1 p-3 bg-neutral-50 rounded-lg text-center">
-                <p className="text-xs text-neutral-500">填写预计</p>
-                <p className="font-medium text-neutral-700">3-5分钟</p>
-              </div>
+            <div className="aspect-[4/3] bg-gradient-to-br from-neutral-100 to-neutral-200 rounded-2xl mb-6 flex items-center justify-center relative overflow-hidden">
+              {photoLoading ? (
+                <div className="text-center">
+                  <Loader2 size={48} className="mx-auto mb-2 text-primary-600 animate-spin" />
+                  <p className="text-sm text-neutral-600">正在拍照...</p>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-white border-4 border-dashed border-primary-300 flex items-center justify-center">
+                    <User size={48} className="text-primary-300" />
+                  </div>
+                  <p className="text-neutral-500">请将面部置于框内</p>
+                  <div className="absolute inset-4 border-2 border-primary-400/50 rounded-2xl" />
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={() => setShowQrModal(false)}
-              className="w-full btn-primary py-3"
-            >
-              关闭
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={simulatePhotoCapture}
+                disabled={photoLoading}
+                className="flex-1 py-3 bg-gradient-to-r from-primary-700 to-primary-800 text-white rounded-xl
+                         font-medium hover:from-primary-800 hover:to-primary-900 transition-all
+                         flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Camera size={18} />
+                {photoLoading ? '处理中...' : '确认拍摄'}
+              </button>
+              <button
+                onClick={() => setShowPhotoModal(false)}
+                className="px-6 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 证件识别弹窗 */}
+      {showOcrModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-neutral-800">证件识别</h3>
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:bg-neutral-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="aspect-[4/3] bg-gradient-to-br from-neutral-100 to-neutral-200 rounded-2xl mb-6 flex items-center justify-center relative overflow-hidden">
+              {ocrLoading ? (
+                <div className="text-center">
+                  <Loader2 size={48} className="mx-auto mb-2 text-success-600 animate-spin" />
+                  <p className="text-sm text-neutral-600">正在识别证件信息...</p>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <div className="w-32 h-24 mx-auto mb-4 rounded-xl bg-white border-2 border-dashed border-neutral-300 flex items-center justify-center">
+                    <Scan size={40} className="text-neutral-300" />
+                  </div>
+                  <p className="text-neutral-500">请将身份证正面置于框内</p>
+                  <div className="absolute inset-4 border-2 border-success-400/50 rounded-2xl" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={simulateOcrScan}
+                disabled={ocrLoading}
+                className="flex-1 py-3 bg-gradient-to-r from-success-500 to-success-600 text-white rounded-xl
+                         font-medium hover:from-success-600 hover:to-success-700 transition-all
+                         flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {ocrLoading ? (
+                  <><Loader2 size={18} className="animate-spin" /> 识别中...</>
+                ) : (
+                  <><Upload size={18} /> 开始识别</>
+                )}
+              </button>
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="px-6 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                取消
+              </button>
+            </div>
           </div>
         </div>
       )}

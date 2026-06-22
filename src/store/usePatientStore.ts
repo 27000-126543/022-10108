@@ -80,6 +80,18 @@ const calculateRiskLevel = (patient: Partial<Patient>): { level: RiskLevel; fact
   if (patient.isLactating) {
     factors.push('哺乳期');
   }
+  if (patient.hasHeartCondition) {
+    factors.push('心脏疾病');
+  }
+  if (patient.hasHypertension) {
+    factors.push('高血压');
+  }
+  if (patient.hasDiabetes) {
+    factors.push('糖尿病');
+  }
+  if (patient.hasKeloid) {
+    factors.push('疤痕体质');
+  }
 
   patient.allergies?.forEach(allergy => {
     if (allergy.severity === 'severe') {
@@ -90,9 +102,17 @@ const calculateRiskLevel = (patient: Partial<Patient>): { level: RiskLevel; fact
   });
 
   let level: RiskLevel = 'low';
-  if (patient.isPregnant) {
+  
+  const highRiskFactors = patient.isPregnant || patient.hasHeartCondition;
+  const mediumRiskFactors = patient.isLactating || 
+                           patient.hasHypertension || 
+                           patient.hasDiabetes || 
+                           patient.hasKeloid ||
+                           patient.allergies?.some(a => a.severity === 'severe');
+  
+  if (highRiskFactors) {
     level = 'high';
-  } else if (patient.isLactating || patient.allergies?.some(a => a.severity === 'severe')) {
+  } else if (mediumRiskFactors) {
     level = 'medium';
   } else if (patient.allergies && patient.allergies.length > 0) {
     level = 'low';
@@ -168,6 +188,13 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       allergies: patientData.allergies || [],
       isPregnant: patientData.isPregnant || false,
       isLactating: patientData.isLactating || false,
+      hasHypertension: patientData.hasHypertension || false,
+      hasDiabetes: patientData.hasDiabetes || false,
+      hasKeloid: patientData.hasKeloid || false,
+      hasHeartCondition: patientData.hasHeartCondition || false,
+      idVerified: patientData.idVerified || false,
+      idPhotoTaken: patientData.idPhotoTaken || false,
+      idOcrDone: patientData.idOcrDone || false,
       budgetRange: patientData.budgetRange || '待定',
     };
 
@@ -367,20 +394,44 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   },
 
   markNoShow: (patientId) => {
-    set((state) => ({
-      patients: state.patients.map(p => 
-        p.id === patientId ? { ...p, status: 'no_show' } : p
-      ),
-    }));
+    set((state) => {
+      const patient = state.patients.find(p => p.id === patientId);
+      const newQueues = { ...state.queues };
+      
+      if (patient?.department) {
+        newQueues[patient.department] = newQueues[patient.department].filter(
+          q => q.patientId !== patientId
+        );
+      }
+      
+      return {
+        patients: state.patients.map(p => 
+          p.id === patientId ? { ...p, status: 'no_show' as PatientStatus } : p
+        ),
+        queues: newQueues,
+      };
+    });
     get().calculateStats();
   },
 
   markRescheduled: (patientId) => {
-    set((state) => ({
-      patients: state.patients.map(p => 
-        p.id === patientId ? { ...p, status: 'rescheduled' } : p
-      ),
-    }));
+    set((state) => {
+      const patient = state.patients.find(p => p.id === patientId);
+      const newQueues = { ...state.queues };
+      
+      if (patient?.department) {
+        newQueues[patient.department] = newQueues[patient.department].filter(
+          q => q.patientId !== patientId
+        );
+      }
+      
+      return {
+        patients: state.patients.map(p => 
+          p.id === patientId ? { ...p, status: 'rescheduled' as PatientStatus } : p
+        ),
+        queues: newQueues,
+      };
+    });
     get().calculateStats();
   },
 

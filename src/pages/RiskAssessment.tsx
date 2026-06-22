@@ -1,10 +1,10 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  AlertTriangle, 
-  Shield, 
-  Baby, 
+import {
+  AlertTriangle,
+  Shield,
+  Baby,
   Heart,
   CheckCircle,
   XCircle,
@@ -12,24 +12,29 @@ import {
   Info,
   AlertCircle,
   CheckCircle2,
-  Clock
+  Clock,
+  Droplets,
+  Activity,
+  Sparkles
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
 import { RISK_LABELS } from '@/types';
-import { getRiskColor } from '@/utils/format';
 
 const RiskAssessment = () => {
   const navigate = useNavigate();
   const { patients, currentPatient, assessRisk, updatePatient } = usePatientStore();
-  
+
   const [isPregnant, setIsPregnant] = useState(false);
   const [isLactating, setIsLactating] = useState(false);
   const [hasHeartCondition, setHasHeartCondition] = useState(false);
+  const [hasHypertension, setHasHypertension] = useState(false);
+  const [hasDiabetes, setHasDiabetes] = useState(false);
+  const [hasKeloid, setHasKeloid] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [riskLevel, setRiskLevel] = useState<'low' | 'medium' | 'high'>('low');
   const [riskFactors, setRiskFactors] = useState<string[]>([]);
 
-  const selectedPatient = currentPatient || patients.find(p => 
+  const selectedPatient = currentPatient || patients.find(p =>
     p.status === 'pending_risk' || p.status === 'pending_demand'
   );
 
@@ -37,6 +42,10 @@ const RiskAssessment = () => {
     if (selectedPatient) {
       setIsPregnant(selectedPatient.isPregnant);
       setIsLactating(selectedPatient.isLactating);
+      setHasHeartCondition(selectedPatient.hasHeartCondition || false);
+      setHasHypertension(selectedPatient.hasHypertension || false);
+      setHasDiabetes(selectedPatient.hasDiabetes || false);
+      setHasKeloid(selectedPatient.hasKeloid || false);
       setRiskLevel(selectedPatient.riskLevel);
       setRiskFactors(selectedPatient.riskFactors);
     }
@@ -44,11 +53,14 @@ const RiskAssessment = () => {
 
   useEffect(() => {
     const factors: string[] = [];
-    
+
     if (isPregnant) factors.push('妊娠期');
     if (isLactating) factors.push('哺乳期');
     if (hasHeartCondition) factors.push('心脏疾病');
-    
+    if (hasHypertension) factors.push('高血压');
+    if (hasDiabetes) factors.push('糖尿病');
+    if (hasKeloid) factors.push('疤痕体质');
+
     if (selectedPatient?.allergies) {
       selectedPatient.allergies.forEach(allergy => {
         if (allergy.severity === 'severe') {
@@ -62,22 +74,33 @@ const RiskAssessment = () => {
     setRiskFactors(factors);
 
     let level: 'low' | 'medium' | 'high' = 'low';
-    if (isPregnant || hasHeartCondition) {
+    const highRiskConditions = isPregnant || hasHeartCondition;
+    const mediumRiskConditions = isLactating ||
+      hasHypertension ||
+      hasDiabetes ||
+      hasKeloid ||
+      selectedPatient?.allergies?.some(a => a.severity === 'severe');
+
+    if (highRiskConditions) {
       level = 'high';
-    } else if (isLactating || selectedPatient?.allergies?.some(a => a.severity === 'severe')) {
+    } else if (mediumRiskConditions) {
       level = 'medium';
     } else if (selectedPatient?.allergies && selectedPatient.allergies.length > 0) {
       level = 'low';
     }
 
     setRiskLevel(level);
-  }, [isPregnant, isLactating, hasHeartCondition, selectedPatient]);
+  }, [isPregnant, isLactating, hasHeartCondition, hasHypertension, hasDiabetes, hasKeloid, selectedPatient]);
 
   const handleConfirm = () => {
     if (selectedPatient) {
       updatePatient(selectedPatient.id, {
         isPregnant,
-        isLactating: isLactating,
+        isLactating,
+        hasHeartCondition,
+        hasHypertension,
+        hasDiabetes,
+        hasKeloid,
         riskLevel,
         riskFactors,
         status: 'pending_triaging',
@@ -114,6 +137,9 @@ const RiskAssessment = () => {
         return 'from-success-50 to-success-100 border-success-200';
     }
   };
+
+  const hasSpecialPeriod = isPregnant || isLactating;
+  const hasHealthIssue = hasHeartCondition || hasHypertension || hasDiabetes || hasKeloid;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -158,7 +184,7 @@ const RiskAssessment = () => {
               <Baby size={20} className="text-primary-600" />
               特殊时期
             </h3>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => setIsPregnant(!isPregnant)}
@@ -174,14 +200,16 @@ const RiskAssessment = () => {
                   }`}>
                     <Baby size={20} />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className={`font-medium ${isPregnant ? 'text-danger-700' : 'text-neutral-700'}`}>
                       妊娠期
                     </p>
                     <p className="text-xs text-neutral-500 mt-1">是否怀孕中</p>
                   </div>
-                  {isPregnant && (
-                    <CheckCircle size={18} className="text-danger-500 ml-auto" />
+                  {isPregnant ? (
+                    <CheckCircle size={18} className="text-danger-500 ml-auto shrink-0" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-neutral-300 ml-auto shrink-0" />
                   )}
                 </div>
               </button>
@@ -200,20 +228,22 @@ const RiskAssessment = () => {
                   }`}>
                     <Heart size={20} />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className={`font-medium ${isLactating ? 'text-warning-700' : 'text-neutral-700'}`}>
                       哺乳期
                     </p>
                     <p className="text-xs text-neutral-500 mt-1">是否正在哺乳</p>
                   </div>
-                  {isLactating && (
-                    <CheckCircle size={18} className="text-warning-500 ml-auto" />
+                  {isLactating ? (
+                    <CheckCircle size={18} className="text-warning-500 ml-auto shrink-0" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-neutral-300 ml-auto shrink-0" />
                   )}
                 </div>
               </button>
             </div>
 
-            {(isPregnant || isLactating) && (
+            {hasSpecialPeriod && (
               <div className="mt-4 p-4 bg-danger-50 rounded-xl border border-danger-200">
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={20} className="text-danger-500 shrink-0 mt-0.5" />
@@ -221,7 +251,7 @@ const RiskAssessment = () => {
                     <p className="font-medium text-danger-800">重要提示</p>
                     <p className="text-sm text-danger-600 mt-1">
                       {isPregnant && '妊娠期顾客应避免大部分医美项目，建议分娩后再进行。'}
-                      {isLactating && '哺乳期顾客部分项目需谨慎，建议咨询医生后决定。'}
+                      {isLactating && !isPregnant && '哺乳期顾客部分项目需谨慎，建议咨询医生后决定。'}
                     </p>
                   </div>
                 </div>
@@ -284,7 +314,7 @@ const RiskAssessment = () => {
             )}
           </div>
 
-          {/* 其他禁忌 */}
+          {/* 其他健康问题 */}
           <div className="card">
             <h3 className="text-lg font-semibold text-neutral-800 mb-4 flex items-center gap-2">
               <Shield size={20} className="text-info-500" />
@@ -302,33 +332,94 @@ const RiskAssessment = () => {
               >
                 <div className="flex items-center gap-3">
                   <Heart size={20} className={hasHeartCondition ? 'text-danger-500' : 'text-neutral-400'} />
-                  <span className={`font-medium ${hasHeartCondition ? 'text-danger-700' : 'text-neutral-700'}`}>
+                  <span className={`font-medium flex-1 ${hasHeartCondition ? 'text-danger-700' : 'text-neutral-700'}`}>
                     心脏疾病
                   </span>
+                  {hasHeartCondition ? (
+                    <CheckCircle size={16} className="text-danger-500" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-neutral-300" />
+                  )}
                 </div>
               </button>
 
-              <button className="p-4 rounded-xl border-2 border-neutral-200 hover:border-neutral-300 transition-all text-left">
+              <button
+                onClick={() => setHasHypertension(!hasHypertension)}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  hasHypertension
+                    ? 'border-warning-400 bg-warning-50'
+                    : 'border-neutral-200 hover:border-neutral-300'
+                }`}
+              >
                 <div className="flex items-center gap-3">
-                  <Clock size={20} className="text-neutral-400" />
-                  <span className="font-medium text-neutral-700">高血压</span>
+                  <Activity size={20} className={hasHypertension ? 'text-warning-500' : 'text-neutral-400'} />
+                  <span className={`font-medium flex-1 ${hasHypertension ? 'text-warning-700' : 'text-neutral-700'}`}>
+                    高血压
+                  </span>
+                  {hasHypertension ? (
+                    <CheckCircle size={16} className="text-warning-500" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-neutral-300" />
+                  )}
                 </div>
               </button>
 
-              <button className="p-4 rounded-xl border-2 border-neutral-200 hover:border-neutral-300 transition-all text-left">
+              <button
+                onClick={() => setHasDiabetes(!hasDiabetes)}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  hasDiabetes
+                    ? 'border-warning-400 bg-warning-50'
+                    : 'border-neutral-200 hover:border-neutral-300'
+                }`}
+              >
                 <div className="flex items-center gap-3">
-                  <Info size={20} className="text-neutral-400" />
-                  <span className="font-medium text-neutral-700">糖尿病</span>
+                  <Droplets size={20} className={hasDiabetes ? 'text-warning-500' : 'text-neutral-400'} />
+                  <span className={`font-medium flex-1 ${hasDiabetes ? 'text-warning-700' : 'text-neutral-700'}`}>
+                    糖尿病
+                  </span>
+                  {hasDiabetes ? (
+                    <CheckCircle size={16} className="text-warning-500" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-neutral-300" />
+                  )}
                 </div>
               </button>
 
-              <button className="p-4 rounded-xl border-2 border-neutral-200 hover:border-neutral-300 transition-all text-left">
+              <button
+                onClick={() => setHasKeloid(!hasKeloid)}
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                  hasKeloid
+                    ? 'border-warning-400 bg-warning-50'
+                    : 'border-neutral-200 hover:border-neutral-300'
+                }`}
+              >
                 <div className="flex items-center gap-3">
-                  <Info size={20} className="text-neutral-400" />
-                  <span className="font-medium text-neutral-700">疤痕体质</span>
+                  <Sparkles size={20} className={hasKeloid ? 'text-warning-500' : 'text-neutral-400'} />
+                  <span className={`font-medium flex-1 ${hasKeloid ? 'text-warning-700' : 'text-neutral-700'}`}>
+                    疤痕体质
+                  </span>
+                  {hasKeloid ? (
+                    <CheckCircle size={16} className="text-warning-500" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-neutral-300" />
+                  )}
                 </div>
               </button>
             </div>
+
+            {hasHealthIssue && (
+              <div className="mt-4 p-4 bg-warning-50 rounded-xl border border-warning-200">
+                <div className="flex items-start gap-3">
+                  <Info size={20} className="text-warning-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-warning-800">健康提示</p>
+                    <p className="text-sm text-warning-600 mt-1">
+                      以下健康状况可能影响医美项目选择，请在分诊时告知医生进行详细评估。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -337,7 +428,7 @@ const RiskAssessment = () => {
           {/* 风险概览 */}
           <div className={`card bg-gradient-to-br ${getRiskBgClass(riskLevel)} border-2`}>
             <h3 className="text-lg font-semibold text-neutral-800 mb-4">风险评估结果</h3>
-            
+
             <div className="text-center py-4">
               <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4 ${
                 riskLevel === 'high' ? 'bg-danger-500' : riskLevel === 'medium' ? 'bg-warning-500' : 'bg-success-500'
@@ -397,6 +488,45 @@ const RiskAssessment = () => {
               )}
             </div>
           </div>
+
+          {/* 已选健康问题摘要 */}
+          {(hasSpecialPeriod || hasHealthIssue) && (
+            <div className="card">
+              <h4 className="font-medium text-neutral-800 mb-3">已选健康问题</h4>
+              <div className="flex flex-wrap gap-2">
+                {isPregnant && (
+                  <span className="px-3 py-1.5 text-xs bg-danger-100 text-danger-700 rounded-full font-medium">
+                    妊娠期
+                  </span>
+                )}
+                {isLactating && (
+                  <span className="px-3 py-1.5 text-xs bg-warning-100 text-warning-700 rounded-full font-medium">
+                    哺乳期
+                  </span>
+                )}
+                {hasHeartCondition && (
+                  <span className="px-3 py-1.5 text-xs bg-danger-100 text-danger-700 rounded-full font-medium">
+                    心脏疾病
+                  </span>
+                )}
+                {hasHypertension && (
+                  <span className="px-3 py-1.5 text-xs bg-warning-100 text-warning-700 rounded-full font-medium">
+                    高血压
+                  </span>
+                )}
+                {hasDiabetes && (
+                  <span className="px-3 py-1.5 text-xs bg-warning-100 text-warning-700 rounded-full font-medium">
+                    糖尿病
+                  </span>
+                )}
+                {hasKeloid && (
+                  <span className="px-3 py-1.5 text-xs bg-warning-100 text-warning-700 rounded-full font-medium">
+                    疤痕体质
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* 护士确认 */}
           {!isConfirmed ? (
