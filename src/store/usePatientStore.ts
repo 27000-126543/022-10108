@@ -1,6 +1,6 @@
 
 import { create } from 'zustand';
-import { Patient, Doctor, QueueItem, DashboardStats, DepartmentType, RiskLevel, PatientStatus, QueueStatus, TimelineRecord, TimelineStep, TIMELINE_STEP_LABELS, DEPARTMENT_LABELS } from '@/types';
+import { Patient, Doctor, QueueItem, DashboardStats, DepartmentType, RiskLevel, PatientStatus, QueueStatus, TimelineRecord, TimelineStep, TIMELINE_STEP_LABELS, DEPARTMENT_LABELS, HandoverRecord, WAIT_TIMEOUT_CONFIG, RISK_SUGGESTIONS, TimeoutLevel } from '@/types';
 import { mockPatients } from '@/data/mockPatients';
 import { mockDoctors } from '@/data/mockDoctors';
 import { generateQueueNumber, calculateWaitTime } from '@/utils/format';
@@ -17,13 +17,15 @@ interface PatientState {
   stats: DashboardStats;
 
   setCurrentPatient: (patient: Patient | null) => void;
-  addPatient: (patient: Omit<Patient, 'id' | 'createdAt' | 'status' | 'riskLevel' | 'riskFactors' | 'timeline'>) => void;
+  addPatient: (patient: Omit<Patient, 'id' | 'createdAt' | 'status' | 'riskLevel' | 'riskFactors' | 'timeline' | 'lastHandover'>) => void;
   updatePatient: (id: string, data: Partial<Patient>) => void;
   updatePatientDemand: (id: string, data: Partial<Patient>) => void;
   assessRisk: (id: string) => void;
   addToQueue: (patientId: string, department: DepartmentType, doctorId?: string) => void;
   updateQueueItem: (queueId: string, data: Partial<QueueItem>) => void;
   callPatient: (queueId: string) => void;
+  recallPatient: (queueId: string) => void;
+  reassignDoctor: (queueId: string, newDoctorId: string) => void;
   startConsultation: (queueId: string, room: string) => void;
   completeConsultation: (queueId: string) => void;
   markNoShow: (patientId: string) => void;
@@ -33,6 +35,16 @@ interface PatientState {
   sendRouteNotification: (patientId: string, room: string) => boolean;
   remind补充信息: (patientId: string) => boolean;
   addTimelineRecord: (patientId: string, step: TimelineStep, note?: string, handler?: string, handlerRole?: TimelineRecord['handlerRole']) => void;
+  sendHandover: (params: {
+    patientId: string;
+    department: DepartmentType;
+    doctorId?: string;
+    note?: string;
+    fromRole: '分诊台' | '护士';
+    fromHandler: string;
+  }) => HandoverRecord;
+  refreshTimeoutLevels: () => void;
+  getTimeoutLevel: (queueItem: QueueItem) => TimeoutLevel;
 }
 
 const initialPatients = [...mockPatients];
@@ -47,6 +59,12 @@ const buildInitialQueues = (patients: Patient[]) => {
   patients.forEach(patient => {
     if (patient.department && patient.queueNumber && 
         (patient.status === 'waiting' || patient.status === 'consulting')) {
+      const waitTime = calculateWaitTime(patient.createdAt);
+      const timeoutConfig = WAIT_TIMEOUT_CONFIG[patient.riskLevel];
+      let timeoutLevel: TimeoutLevel = 'normal';
+      if (waitTime >= timeoutConfig.critical) timeoutLevel = 'critical';
+      else if (waitTime >= timeoutConfig.warning) timeoutLevel = 'warning';
+      
       const queueItem: QueueItem = {
         id: `queue-${patient.id}`,
         patientId: patient.id,
@@ -56,8 +74,9 @@ const buildInitialQueues = (patients: Patient[]) => {
         doctorId: patient.assignedDoctor,
         status: patient.status === 'consulting' ? 'consulting' : 'waiting',
         consultationRoom: patient.consultationRoom,
-        waitTime: calculateWaitTime(patient.createdAt),
+        waitTime,
         createdAt: patient.createdAt,
+        timeoutLevel,
       };
       queues[patient.department].push(queueItem);
     }
@@ -207,8 +226,23 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     if (patientData.idPhotoTaken && patientData.idOcrDone && verifyPatch.idVerified) {
       initialTimeline.push(createTimelineRecord('id_verified', '前台小王', '前台', '拍照+证件核验完成'));
     }
-    if (patientData.concernedAreas && patientData.concernedAreas.length > 0) {
+    
+    const hasDemands = (patientData.concernedAreas && patientData.concernedAreas.length > 0) 
+      || (patientData.budgetRange && patientData.budgetRange !== '待定');
+    const hasRiskFlags = patientData.isPregnant || patientData.isLactating || 
+      patientData.hasHypertension || patientData.hasDiabetes || 
+      patientData.hasKeloid || patientData.hasHeartCondition ||
+      (patientData.allergies && patientData.allergies.length > 0);
+
+    if (hasDemands) {
       initialTimeline.push(createTimelineRecord('demand_collected', '前台小王', '前台', '扫码建档自带诉求'));
+    }
+
+    let initialStatus: PatientStatus = 'pending_demand';
+    if (hasDemands && hasRiskFlags) {
+      initialStatus = 'pending_triaging';
+    } else if (hasDemands) {
+      initialStatus = 'pending_risk';
     }
 
     const newPatient: Patient = {
@@ -216,7 +250,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       ...verifyPatch,
       id: `p-${Date.now()}`,
       createdAt: new Date(),
-      status: 'registered',
+      status: initialStatus,
       riskLevel: 'low',
       riskFactors: [],
       concernedAreas: patientData.concernedAreas || [],
@@ -566,5 +600,168 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     if (!patient) return false;
     console.log(`已提醒 ${patient.name} 补充缺失信息`);
     return true;
+  },
+
+  getTimeoutLevel: (queueItem) => {
+    const waitTime = calculateWaitTime(queueItem.createdAt);
+    const config = WAIT_TIMEOUT_CONFIG[queueItem.patient.riskLevel];
+    if (waitTime >= config.critical) return 'critical';
+    if (waitTime >= config.warning) return 'warning';
+    return 'normal';
+  },
+
+  refreshTimeoutLevels: () => {
+    set((state) => {
+      const newQueues = { ...state.queues };
+      (Object.keys(newQueues) as DepartmentType[]).forEach(dept => {
+        newQueues[dept] = newQueues[dept].map(item => ({
+          ...item,
+          waitTime: calculateWaitTime(item.createdAt),
+          timeoutLevel: get().getTimeoutLevel(item),
+        }));
+      });
+      const updatedPatients = state.patients.map(patient => {
+        if (patient.status === 'waiting' || patient.status === 'consulting') {
+          return patient;
+        }
+        return patient;
+      });
+      return { queues: newQueues, patients: updatedPatients };
+    });
+  },
+
+  recallPatient: (queueId) => {
+    const state = get();
+    let department: DepartmentType | null = null;
+    let patientId: string | null = null;
+
+    (Object.keys(state.queues) as DepartmentType[]).forEach(dept => {
+      const item = state.queues[dept].find(q => q.id === queueId);
+      if (item) {
+        department = dept;
+        patientId = item.patientId;
+      }
+    });
+
+    if (!department || !patientId) return;
+
+    const patient = state.patients.find(p => p.id === patientId);
+    const newTimeline = patient 
+      ? [...patient.timeline, createTimelineRecord('recalled', '护士小李', '护士', '等待超时，重新呼叫顾客')]
+      : [];
+
+    set((state) => ({
+      queues: {
+        ...state.queues,
+        [department!]: state.queues[department!].map(item => 
+          item.id === queueId ? { 
+            ...item, 
+            status: 'waiting' as QueueStatus, 
+            calledAt: new Date(),
+            timeoutLevel: 'normal',
+            waitTime: calculateWaitTime(item.createdAt),
+          } : item
+        ),
+      },
+      patients: state.patients.map(p => 
+        p.id === patientId 
+          ? { ...p, status: 'waiting' as PatientStatus, timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          : p
+      ),
+    }));
+
+    get().calculateStats();
+  },
+
+  reassignDoctor: (queueId, newDoctorId) => {
+    const state = get();
+    let department: DepartmentType | null = null;
+    let patientId: string | null = null;
+    let originalDoctorName = '';
+
+    (Object.keys(state.queues) as DepartmentType[]).forEach(dept => {
+      const item = state.queues[dept].find(q => q.id === queueId);
+      if (item) {
+        department = dept;
+        patientId = item.patientId;
+        originalDoctorName = state.doctors.find(d => d.id === item.doctorId)?.name || '未分配';
+      }
+    });
+
+    if (!department || !patientId) return;
+
+    const newDoctor = state.doctors.find(d => d.id === newDoctorId);
+    const newDoctorName = newDoctor?.name || '新医生';
+    const patient = state.patients.find(p => p.id === patientId);
+    const newTimeline = patient 
+      ? [...patient.timeline, createTimelineRecord('doctor_reassigned', '护士小李', '护士', `${originalDoctorName} → ${newDoctorName}`)]
+      : [];
+
+    set((state) => ({
+      queues: {
+        ...state.queues,
+        [department!]: state.queues[department!].map(item => 
+          item.id === queueId ? { ...item, doctorId: newDoctorId } : item
+        ),
+      },
+      patients: state.patients.map(p => 
+        p.id === patientId 
+          ? { ...p, assignedDoctor: newDoctorId, timeline: newTimeline.length > 0 ? newTimeline : p.timeline }
+          : p
+      ),
+    }));
+  },
+
+  sendHandover: ({ patientId, department, doctorId, note, fromRole, fromHandler }) => {
+    const state = get();
+    const patient = state.patients.find(p => p.id === patientId)!;
+    const doctorName = state.doctors.find(d => d.id === doctorId)?.name;
+
+    const riskSuggestions: string[] = [];
+    patient.riskFactors.forEach(factor => {
+      if (RISK_SUGGESTIONS[factor]) {
+        riskSuggestions.push(...RISK_SUGGESTIONS[factor].tips.slice(0, 2));
+      }
+    });
+
+    const handover: HandoverRecord = {
+      id: `handover-${Date.now()}`,
+      patientId,
+      fromRole,
+      fromHandler,
+      toDoctorId: doctorId,
+      toDoctorName: doctorName,
+      department,
+      summary: {
+        riskLevel: patient.riskLevel,
+        riskFactors: patient.riskFactors,
+        riskSuggestions,
+        demands: [...patient.concernedAreas].slice(0, 5),
+        budgetRange: patient.budgetRange,
+        allergies: patient.allergies.map(a => `${a.substance}${a.severity === 'severe' ? '(重)' : a.severity === 'moderate' ? '(中)' : ''}`),
+        medicalHistoryCount: patient.medicalHistory.length,
+        idVerified: patient.idVerified,
+      },
+      note,
+      createdAt: new Date(),
+    };
+
+    const handoverNote = doctorName 
+      ? `交接单已发送至 ${doctorName}` 
+      : '科室交接单已生成';
+    const newTimeline = [...patient.timeline, createTimelineRecord('handover_sent', fromHandler, fromRole, handoverNote)];
+
+    set((state) => ({
+      patients: state.patients.map(p => 
+        p.id === patientId 
+          ? { ...p, lastHandover: handover, timeline: newTimeline }
+          : p
+      ),
+      currentPatient: state.currentPatient?.id === patientId
+        ? { ...state.currentPatient, lastHandover: handover, timeline: newTimeline }
+        : state.currentPatient,
+    }));
+
+    return handover;
   },
 }));

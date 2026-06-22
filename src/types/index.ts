@@ -28,11 +28,16 @@ export type TimelineStep =
   | 'risk_assessed'
   | 'triaged'
   | 'called'
+  | 'recalled'
   | 'consulting_started'
   | 'completed'
   | 'no_show'
   | 'rescheduled'
-  | 'id_verified';
+  | 'id_verified'
+  | 'handover_sent'
+  | 'doctor_reassigned';
+
+export type TimeoutLevel = 'normal' | 'warning' | 'critical';
 
 export interface TimelineRecord {
   id: string;
@@ -42,6 +47,29 @@ export interface TimelineRecord {
   handlerRole: '前台' | '护士' | '分诊台' | '医生' | '系统';
   timestamp: Date;
   note?: string;
+}
+
+export interface HandoverRecord {
+  id: string;
+  patientId: string;
+  fromRole: '分诊台' | '护士';
+  fromHandler: string;
+  toDoctorId?: string;
+  toDoctorName?: string;
+  department: DepartmentType;
+  summary: {
+    riskLevel: RiskLevel;
+    riskFactors: string[];
+    riskSuggestions: string[];
+    demands: string[];
+    budgetRange?: string;
+    allergies: string[];
+    medicalHistoryCount: number;
+    idVerified: boolean;
+  };
+  note?: string;
+  createdAt: Date;
+  readAt?: Date;
 }
 
 export interface MedicalHistory {
@@ -95,6 +123,7 @@ export interface Patient {
   completedAt?: Date;
   notes?: string;
   timeline: TimelineRecord[];
+  lastHandover?: HandoverRecord;
 }
 
 export interface Doctor {
@@ -124,6 +153,7 @@ export interface QueueItem {
   calledAt?: Date;
   consultingAt?: Date;
   completedAt?: Date;
+  timeoutLevel?: TimeoutLevel;
 }
 
 export interface DashboardStats {
@@ -278,10 +308,20 @@ export const TIMELINE_STEP_LABELS: Record<TimelineStep, string> = {
   risk_assessed: '风险评估完成',
   triaged: '科室分诊完成',
   called: '已叫号',
+  recalled: '重新叫号',
   consulting_started: '开始面诊',
   completed: '面诊完成',
   no_show: '标记爽约',
   rescheduled: '已改约',
   id_verified: '身份核验通过',
+  handover_sent: '医生交接单已发送',
+  doctor_reassigned: '改派医生',
 };
+
+export const WAIT_TIMEOUT_CONFIG: Record<RiskLevel, { warning: number; critical: number }> = {
+  high:   { warning: 20, critical: 40 },
+  medium: { warning: 40, critical: 60 },
+  low:    { warning: 60, critical: 90 },
+};
+
 

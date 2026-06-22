@@ -1,5 +1,5 @@
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users,
@@ -27,22 +27,41 @@ import {
   User,
   Stethoscope,
   Activity,
-  FileText
+  FileText,
+  FileSpreadsheet,
+  CheckCheck,
+  Pill,
+  PhoneOutgoing,
+  UserCircle,
+  UserCheck,
+  Repeat,
+  X
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
-import { DEPARTMENT_LABELS, DepartmentType, QueueStatus, RiskLevel } from '@/types';
+import { DEPARTMENT_LABELS, DepartmentType, QueueStatus, RiskLevel, WAIT_TIMEOUT_CONFIG, RISK_SUGGESTIONS } from '@/types';
 import { formatMinutes } from '@/utils/format';
 import { RISK_LABELS, STATUS_LABELS } from '@/types';
 
 const WaitingQueue = () => {
   const navigate = useNavigate();
-  const { queues, patients, doctors, callPatient, startConsultation, completeConsultation, markNoShow, markRescheduled, sendRouteNotification, setCurrentPatient } = usePatientStore();
+  const { queues, patients, doctors, callPatient, startConsultation, completeConsultation, markNoShow, markRescheduled, sendRouteNotification, setCurrentPatient, recallPatient, reassignDoctor, sendHandover, refreshTimeoutLevels } = usePatientStore();
 
   const [activeDepartment, setActiveDepartment] = useState<DepartmentType | 'all'>('all');
   const [activeRiskFilter, setActiveRiskFilter] = useState<RiskLevel | 'all'>('all');
   const [activeFilter, setActiveFilter] = useState<'queue' | 'no_show' | 'rescheduled'>('queue');
   const [expandedQueue, setExpandedQueue] = useState<string | null>(null);
   const [sentRoutes, setSentRoutes] = useState<Set<string>>(new Set());
+  const [handoverNotes, setHandoverNotes] = useState<Record<string, string>>({});
+  const [sentHandovers, setSentHandovers] = useState<Set<string>>(new Set());
+  const [reassigningFor, setReassigningFor] = useState<string | null>(null);
+
+  useEffect(() => {
+    refreshTimeoutLevels();
+    const timer = setInterval(() => {
+      refreshTimeoutLevels();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [refreshTimeoutLevels]);
 
   const getQueueItems = () => {
     if (activeDepartment === 'all') {
@@ -64,6 +83,19 @@ const WaitingQueue = () => {
 
   const highRiskItems = useMemo(() => 
     allQueueItems.filter(item => item.patient.riskLevel === 'high'),
+    [allQueueItems]
+  );
+
+  const criticalTimeoutItems = useMemo(() =>
+    allQueueItems.filter(item =>
+      item.status === 'waiting' && item.timeoutLevel === 'critical'
+    ),
+    [allQueueItems]
+  );
+  const warningTimeoutItems = useMemo(() =>
+    allQueueItems.filter(item =>
+      item.status === 'waiting' && item.timeoutLevel === 'warning'
+    ),
     [allQueueItems]
   );
 
@@ -197,21 +229,26 @@ const WaitingQueue = () => {
     const isExpanded = expandedQueue === item.id;
     const statusBadge = getStatusBadge(item.status);
     const riskBadge = getRiskBadge(item.patient.riskLevel);
+    const isCriticalTimeout = item.status === 'waiting' && item.timeoutLevel === 'critical';
+    const isWarningTimeout = item.status === 'waiting' && item.timeoutLevel === 'warning';
 
     return (
       <div className={`card transition-all ${isExpanded ? 'shadow-card' : ''} ${
         isHighlighted ? 'ring-2 ring-danger-300 ring-offset-1' : ''
-      }`}>
+      } ${isCriticalTimeout ? 'border-l-4 border-l-danger-500' : isWarningTimeout ? 'border-l-4 border-l-warning-500' : ''}`}>
         <div
           className="flex items-center gap-4 cursor-pointer"
           onClick={() => setExpandedQueue(isExpanded ? null : item.id)}
         >
           <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center ${
+            isCriticalTimeout 
+              ? 'from-danger-200 to-danger-300 ring-2 ring-danger-400 animate-pulse' :
             item.patient.riskLevel === 'high' 
               ? 'from-danger-100 to-danger-200' 
               : 'from-primary-100 to-accent-100'
           }`}>
             <span className={`text-2xl font-bold ${
+              isCriticalTimeout ? 'text-danger-800' :
               item.patient.riskLevel === 'high' ? 'text-danger-700' : 'text-primary-700'
             }`}>{item.queueNumber}</span>
           </div>
@@ -231,10 +268,28 @@ const WaitingQueue = () => {
                   已核验
                 </span>
               )}
-              {item.patient.riskLevel === 'high' && (
+              {isCriticalTimeout && (
+                <span className="px-2 py-0.5 text-xs bg-danger-600 text-white rounded-full animate-pulse flex items-center gap-1">
+                  <Clock size={10} />
+                  严重超时
+                </span>
+              )}
+              {isWarningTimeout && !isCriticalTimeout && (
+                <span className="px-2 py-0.5 text-xs bg-warning-500 text-white rounded-full flex items-center gap-1">
+                  <Clock size={10} />
+                  等待过久
+                </span>
+              )}
+              {item.patient.riskLevel === 'high' && !isCriticalTimeout && (
                 <span className="px-2 py-0.5 text-xs bg-danger-500 text-white rounded-full animate-pulse flex items-center gap-1">
                   <AlertTriangle size={10} />
                   需优先处理
+                </span>
+              )}
+              {item.patient.lastHandover && (
+                <span className="px-2 py-0.5 text-xs bg-primary-100 text-primary-700 rounded-full flex items-center gap-1">
+                  <FileSpreadsheet size={10} />
+                  已交接
                 </span>
               )}
             </div>
@@ -243,9 +298,12 @@ const WaitingQueue = () => {
                 {getDepartmentIcon(item.department)}
                 <span>{DEPARTMENT_LABELS[item.department]}</span>
               </span>
-              <span className="flex items-center gap-1">
+              <span className={`flex items-center gap-1 font-medium ${
+                isCriticalTimeout ? 'text-danger-600' : isWarningTimeout ? 'text-warning-600' : ''
+              }`}>
                 <Clock size={14} />
                 等待 {formatMinutes(item.waitTime)}
+                {isCriticalTimeout && <span className="text-xs text-danger-500">（超过 {WAIT_TIMEOUT_CONFIG[item.patient.riskLevel].critical}分钟）</span>}
               </span>
               <span className="flex items-center gap-1">
                 <Users size={14} />
@@ -262,13 +320,15 @@ const WaitingQueue = () => {
                   handleCallPatient(item.id);
                 }}
                 className={`py-2 px-4 text-sm rounded-xl font-medium transition-all ${
+                  isCriticalTimeout
+                    ? 'bg-gradient-to-r from-danger-600 to-danger-700 text-white hover:from-danger-700 hover:to-danger-800 animate-pulse' :
                   item.patient.riskLevel === 'high'
                     ? 'bg-gradient-to-r from-danger-500 to-danger-600 text-white hover:from-danger-600 hover:to-danger-700'
                     : 'btn-primary'
                 }`}
               >
-                <PhoneCall size={16} className="inline mr-1" />
-                {item.patient.riskLevel === 'high' ? '优先叫号' : '叫号'}
+                {isCriticalTimeout ? <PhoneOutgoing size={16} className="inline mr-1" /> : <PhoneCall size={16} className="inline mr-1" />}
+                {isCriticalTimeout ? '紧急叫号' : item.patient.riskLevel === 'high' ? '优先叫号' : '叫号'}
               </button>
             )}
             {item.status === 'called' && (
@@ -364,6 +424,189 @@ const WaitingQueue = () => {
                 </div>
               </div>
             )}
+
+            {/* 超时提醒 + 重新叫号 / 改派医生 */}
+            {(isCriticalTimeout || isWarningTimeout) && (
+              <div className={`mt-4 p-4 rounded-2xl border ${
+                isCriticalTimeout 
+                  ? 'bg-danger-50 border-danger-200' 
+                  : 'bg-warning-50 border-warning-200'
+              }`}>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start gap-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      isCriticalTimeout ? 'bg-danger-500' : 'bg-warning-500'
+                    }`}>
+                      <Clock size={16} className="text-white" />
+                    </div>
+                    <div>
+                      <p className={`text-sm font-semibold ${
+                        isCriticalTimeout ? 'text-danger-700' : 'text-warning-700'
+                      }`}>
+                        {isCriticalTimeout ? '候诊严重超时' : '候诊等待过久'}
+                      </p>
+                      <p className="text-xs text-neutral-500">
+                        已等待 {formatMinutes(item.waitTime)}，{RISK_LABELS[item.patient.riskLevel]}
+                        顾客建议阈值 {WAIT_TIMEOUT_CONFIG[item.patient.riskLevel].critical} 分钟
+                      </p>
+                    </div>
+                  </div>
+                  {item.patient.riskLevel === 'high' && (
+                    <span className="px-2 py-0.5 text-[10px] bg-danger-500 text-white rounded-full animate-pulse">
+                      高风险优先
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => recallPatient(item.id)}
+                    className={`px-4 py-2 text-sm rounded-xl font-medium transition-all flex items-center gap-1.5 ${
+                      isCriticalTimeout 
+                        ? 'bg-danger-600 text-white hover:bg-danger-700' 
+                        : 'bg-warning-600 text-white hover:bg-warning-700'
+                    }`}
+                  >
+                    <Repeat size={14} />
+                    重新叫号
+                  </button>
+                  <button
+                    onClick={() => setReassigningFor(reassigningFor === item.id ? null : item.id)}
+                    className="px-4 py-2 text-sm bg-white rounded-xl font-medium text-neutral-700 border border-neutral-200 hover:bg-neutral-50 transition-all flex items-center gap-1.5"
+                  >
+                    <UserCheck size={14} />
+                    {reassigningFor === item.id ? '收起改派' : '改派医生'}
+                  </button>
+                  <button
+                    onClick={() => handleMarkRescheduled(item.patientId)}
+                    className="px-4 py-2 text-sm text-warning-700 hover:bg-warning-100 rounded-xl font-medium flex items-center gap-1.5 transition-all"
+                  >
+                    <Calendar size={14} />
+                    建议改约
+                  </button>
+                </div>
+                {reassigningFor === item.id && (
+                  <div className="mt-3 p-3 bg-white rounded-xl border border-neutral-100">
+                  <p className="text-xs text-neutral-500 mb-2">选择新接诊医生（{DEPARTMENT_LABELS[item.department]}）</p>
+                  <div className="flex flex-wrap gap-2">
+                    {doctors
+                      .filter(d => d.department === item.department && d.isOnline)
+                      .map(d => (
+                        <button
+                          key={d.id}
+                          onClick={() => {
+                            reassignDoctor(item.id, d.id);
+                            setReassigningFor(null);
+                          }}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                            item.doctorId === d.id 
+                              ? 'bg-primary-100 text-primary-700 border border-primary-200' 
+                              : 'bg-neutral-50 hover:bg-neutral-100 text-neutral-700'
+                          }`}
+                        >
+                          <img src={d.avatar} alt={d.name} className="w-6 h-6 rounded-full" />
+                          <span>{d.name}</span>
+                          <span className="text-[10px] text-neutral-400">
+                            今日{d.todayCompleted}人
+                          </span>
+                          {item.doctorId === d.id && (
+                            <CheckCheck size={12} className="text-primary-600" />
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+                )}
+              </div>
+            )}
+
+            {/* 医生交接单（简化版 - 候诊队列里） */}
+            <div className="mt-4 p-4 rounded-2xl bg-gradient-to-br from-neutral-50 to-white border border-neutral-100">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet size={16} className="text-primary-600" />
+                  <h4 className="font-medium text-neutral-800">医生交接单</h4>
+                </div>
+                {(sentHandovers.has(item.patientId) || item.patient.lastHandover) && (
+                  <span className="px-2 py-0.5 text-[11px] bg-success-100 text-success-700 rounded-full flex items-center gap-0.5">
+                    <CheckCheck size={10} />
+                    {item.patient.lastHandover
+                      ? `${item.patient.lastHandover.toDoctorName || '科室'}已接收`
+                      : '已发送'
+                    }
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                <div className="px-3 py-2 rounded-lg bg-neutral-50">
+                  <p className="text-[10px] text-neutral-500 mb-0.5">风险等级</p>
+                  <p className={`text-xs font-semibold ${
+                    item.patient.riskLevel === 'high' ? 'text-danger-700' :
+                    item.patient.riskLevel === 'medium' ? 'text-warning-700' : 'text-success-700'
+                  }`}>{RISK_LABELS[item.patient.riskLevel]}</p>
+                </div>
+                <div className="px-3 py-2 rounded-lg bg-neutral-50">
+                  <p className="text-[10px] text-neutral-500 mb-0.5">身份核验</p>
+                  <p className={`text-xs font-semibold ${
+                    item.patient.idVerified ? 'text-success-700' : 'text-neutral-500'
+                  }`}>{item.patient.idVerified ? '已核验' : '待核验'}</p>
+                </div>
+                <div className="px-3 py-2 rounded-lg bg-neutral-50">
+                  <p className="text-[10px] text-neutral-500 mb-0.5">过敏史</p>
+                  <p className="text-xs font-semibold text-neutral-700">
+                    {item.patient.allergies.length > 0 ? `${item.patient.allergies.length}项` : '无'}
+                  </p>
+                </div>
+                <div className="px-3 py-2 rounded-lg bg-neutral-50">
+                  <p className="text-[10px] text-neutral-500 mb-0.5">预算</p>
+                  <p className="text-xs font-semibold text-accent-700">{item.patient.budgetRange?.slice(0, 6) || '未定'}</p>
+                </div>
+              </div>
+
+              {item.patient.riskFactors.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[10px] text-neutral-500 mb-1">风险点</p>
+                  <div className="flex flex-wrap gap-1">
+                    {item.patient.riskFactors.map((f: string, i: number) => (
+                      <span key={i} className={`px-1.5 py-px text-[10px] rounded-full ${
+                        item.patient.riskLevel === 'high' ? 'bg-danger-100 text-danger-700' :
+                        item.patient.riskLevel === 'medium' ? 'bg-warning-100 text-warning-700' : 'bg-success-100 text-success-700'
+                      }`}>{f}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(sentHandovers.has(item.patientId) || item.patient.lastHandover ? null : (
+                <>
+                  <textarea
+                    value={handoverNotes[item.patientId] || ''}
+                    onChange={(e) => setHandoverNotes(prev => ({ ...prev, [item.patientId]: e.target.value }))}
+                    placeholder="护士备注（可选）"
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-white border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-primary-100 resize-none mb-2"
+                    rows={1}
+                  />
+                  <button
+                    onClick={() => {
+                      sendHandover({
+                        patientId: item.patientId,
+                        department: item.department,
+                        doctorId: item.doctorId,
+                        note: handoverNotes[item.patientId],
+                        fromRole: '护士',
+                        fromHandler: '护士小李',
+                      });
+                      setSentHandovers(prev => new Set(prev).add(item.patientId));
+                    }}
+                    disabled={!item.doctorId && false}
+                    className="w-full py-2 text-xs font-medium rounded-xl bg-gradient-to-r from-primary-600 to-primary-700 text-white hover:from-primary-700 hover:to-primary-800 transition-all flex items-center justify-center gap-1 disabled:opacity-60"
+                  >
+                    <Send size={12} />
+                    {item.doctorId ? `发送给 ${getDoctorName(item.doctorId)}` : '发送至科室'}
+                  </button>
+                </>
+              ))}
+            </div>
 
             {renderTimeline(item.patient.timeline)}
 
@@ -681,6 +924,67 @@ const WaitingQueue = () => {
       {/* 风险等级 + 科室筛选（仅候诊队列显示） */}
       {activeFilter === 'queue' && (
         <div className="space-y-4 mb-6">
+          {/* 超时紧急预警区（critical） - 优先级最高 */}
+          {criticalTimeoutItems.length > 0 && (
+            <div className="card border-2 border-danger-400 bg-gradient-to-br from-danger-100 via-danger-50 to-white shadow-card animate-pulse-slow">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-danger-600 to-danger-700 flex items-center justify-center">
+                    <Clock size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-danger-800 flex items-center gap-2">
+                      超时紧急预警
+                      <span className="px-2 py-0.5 text-[10px] bg-danger-700 text-white rounded-full">
+                        护士立即处理
+                      </span>
+                    </h3>
+                    <p className="text-xs text-danger-600">
+                      共 {criticalTimeoutItems.length} 位顾客候诊超时，请立即重新叫号或改派
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="px-3 py-1.5 text-sm bg-danger-600 text-white rounded-full font-medium">
+                    严重超时 · {criticalTimeoutItems.length}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {criticalTimeoutItems.map((item, index) => (
+                  <QueueCard key={item.id} item={item} index={index} isHighlighted />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 警告超时预警区（warning） */}
+          {warningTimeoutItems.length > 0 && criticalTimeoutItems.length === 0 && (
+            <div className="card border-2 border-warning-300 bg-gradient-to-br from-warning-50/80 to-white">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-warning-500 to-warning-600 flex items-center justify-center">
+                    <AlertCircle size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-warning-800">等候超时提醒</h3>
+                    <p className="text-xs text-warning-600">
+                      共 {warningTimeoutItems.length} 位顾客等待时间过长，建议关注
+                    </p>
+                  </div>
+                </div>
+                <span className="px-3 py-1.5 text-sm bg-warning-500 text-white rounded-full font-medium">
+                  等待过久 · {warningTimeoutItems.length}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {warningTimeoutItems.slice(0, 3).map((item, index) => (
+                  <QueueCard key={item.id} item={item} index={index} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 高风险预警区 */}
           {highRiskItems.length > 0 && (
             <div className="card border-2 border-danger-200 bg-gradient-to-br from-danger-50/50 to-white">

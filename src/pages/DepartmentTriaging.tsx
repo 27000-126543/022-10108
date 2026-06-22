@@ -20,19 +20,26 @@ import {
   AlertTriangle,
   Activity,
   FileText,
-  History
+  History,
+  Send,
+  FileSpreadsheet,
+  CheckCheck,
+  UserCircle,
+  Pill
 } from 'lucide-react';
 import { usePatientStore } from '@/store/usePatientStore';
-import { DEPARTMENT_LABELS, DepartmentType, Doctor, RISK_SUGGESTIONS, RISK_LABELS } from '@/types';
+import { DEPARTMENT_LABELS, DepartmentType, Doctor, RISK_SUGGESTIONS, RISK_LABELS, TIMELINE_STEP_LABELS } from '@/types';
 
 const DepartmentTriaging = () => {
   const navigate = useNavigate();
-  const { patients, currentPatient, doctors, addToQueue, setCurrentPatient } = usePatientStore();
+  const { patients, currentPatient, doctors, addToQueue, setCurrentPatient, sendHandover } = usePatientStore();
   
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentType | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<string | null>(null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [handoverNote, setHandoverNote] = useState('');
+  const [handoverSent, setHandoverSent] = useState(false);
 
   const selectedPatient = currentPatient || patients.find(p => 
     p.status === 'pending_triaging' || p.status === 'pending_risk'
@@ -639,6 +646,208 @@ const DepartmentTriaging = () => {
               </div>
             </div>
           )}
+
+          {/* 医生交接单 */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+                  <FileSpreadsheet size={16} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-neutral-800">医生交接单</h3>
+                  <p className="text-xs text-neutral-400">汇总风险/诉求/过敏，发送至医生端</p>
+                </div>
+              </div>
+              {(handoverSent || selectedPatient.lastHandover) && (
+                <span className="px-2.5 py-1 text-[11px] bg-success-100 text-success-700 rounded-full flex items-center gap-1">
+                  <CheckCheck size={12} />
+                  已发送
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3.5">
+              {/* 身份核验状态行 */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-neutral-50">
+                <span className="text-xs text-neutral-500 flex items-center gap-1">
+                  <ShieldCheck size={12} />
+                  身份核验
+                </span>
+                <span className={`text-xs font-medium flex items-center gap-1 ${
+                  selectedPatient.idVerified ? 'text-success-600' : 'text-neutral-400'
+                }`}>
+                  {selectedPatient.idVerified ? '已核验（拍照+证件一致）' : '未完成核验，接诊时需确认'}
+                </span>
+              </div>
+
+              {/* 风险摘要行 */}
+              <div className="p-3 rounded-xl border-l-4 bg-neutral-50/50"
+                style={{
+                  borderLeftColor: selectedPatient.riskLevel === 'high' ? '#e11d48' :
+                                    selectedPatient.riskLevel === 'medium' ? '#d97706' : '#10b981',
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-neutral-700 flex items-center gap-1">
+                    <AlertTriangle size={12} className={
+                      selectedPatient.riskLevel === 'high' ? 'text-danger-600' :
+                      selectedPatient.riskLevel === 'medium' ? 'text-warning-600' : 'text-success-600'
+                    } />
+                    风险摘要 · {RISK_LABELS[selectedPatient.riskLevel]}
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {riskFactorKeys.length} 项风险点
+                  </span>
+                </div>
+                {riskFactorKeys.length > 0 ? (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {riskFactorKeys.map((f, i) => (
+                      <span key={i} className={`px-2 py-0.5 text-[11px] rounded-full font-medium ${
+                        selectedPatient.riskLevel === 'high' ? 'bg-danger-100 text-danger-700' :
+                        selectedPatient.riskLevel === 'medium' ? 'bg-warning-100 text-warning-700' :
+                        'bg-success-100 text-success-700'
+                      }`}>
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-400 mb-2">无特殊风险，常规接诊</p>
+                )}
+                {riskFactorKeys.length > 0 && (
+                  <div className="space-y-1">
+                    {riskFactorKeys.slice(0, 2).filter(f => RISK_SUGGESTIONS[f]).map((f, i) => (
+                      <div key={i} className="text-xs text-neutral-600 pl-3 border-l-2 border-neutral-200">
+                        {RISK_SUGGESTIONS[f].title}：{RISK_SUGGESTIONS[f].tips[0]}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 诉求+预算摘要 */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 rounded-xl bg-primary-50/40">
+                  <span className="text-[11px] text-primary-600 font-medium block mb-1 flex items-center gap-1">
+                    <FileText size={11} />
+                    诉求摘要
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedPatient.concernedAreas.slice(0, 3).map((a, i) => (
+                      <span key={i} className="text-[11px] px-1.5 py-0.5 bg-white rounded-full text-neutral-600">
+                        {a}
+                      </span>
+                    ))}
+                    {selectedPatient.concernedAreas.length > 3 && (
+                      <span className="text-[11px] px-1.5 py-0.5 bg-white rounded-full text-neutral-400">
+                        +{selectedPatient.concernedAreas.length - 3}
+                      </span>
+                    )}
+                    {selectedPatient.concernedAreas.length === 0 && (
+                      <span className="text-[11px] text-neutral-400">接诊时详细询问</span>
+                    )}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-accent-50/40">
+                  <span className="text-[11px] text-accent-600 font-medium block mb-1 flex items-center gap-1">
+                    <Pill size={11} />
+                    预算区间
+                  </span>
+                  <span className="text-sm font-semibold text-accent-700">
+                    {selectedPatient.budgetRange || '未定'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 过敏史 + 既往史 */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 rounded-xl bg-danger-50/30 border border-danger-100">
+                  <span className="text-[11px] text-danger-600 font-medium block mb-1 flex items-center gap-1">
+                    <AlertCircle size={11} />
+                    过敏史 ({selectedPatient.allergies.length})
+                  </span>
+                  {selectedPatient.allergies.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedPatient.allergies.slice(0, 2).map((a, i) => (
+                        <span key={i} className={`text-[11px] px-1.5 py-0.5 rounded-full ${
+                          a.severity === 'severe' ? 'bg-danger-200 text-danger-800 font-medium' :
+                          a.severity === 'moderate' ? 'bg-danger-100 text-danger-700' :
+                          'bg-danger-50 text-danger-600'
+                        }`}>
+                          {a.substance}{a.severity === 'severe' ? '(重)' : a.severity === 'moderate' ? '(中)' : ''}
+                        </span>
+                      ))}
+                      {selectedPatient.allergies.length > 2 && (
+                        <span className="text-[11px] px-1.5 py-0.5 bg-white rounded-full text-danger-400">
+                          +{selectedPatient.allergies.length - 2}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-neutral-400">无已知过敏</span>
+                  )}
+                </div>
+                <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200">
+                  <span className="text-[11px] text-neutral-600 font-medium block mb-1 flex items-center gap-1">
+                    <History size={11} />
+                    既往操作
+                  </span>
+                  <span className="text-sm font-semibold text-neutral-700">
+                    {selectedPatient.medicalHistory.length > 0 
+                      ? `${selectedPatient.medicalHistory.length} 次` 
+                      : '初诊，无'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 备注输入 */}
+              <div>
+                <label className="text-xs text-neutral-500 block mb-1">前台/护士备注（可选）</label>
+                <textarea
+                  value={handoverNote}
+                  onChange={(e) => setHandoverNote(e.target.value)}
+                  placeholder="如：顾客怕疼建议温柔操作、陪同家属需参与沟通..."
+                  className="w-full px-3 py-2 text-sm rounded-xl bg-white border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-400 resize-none"
+                  rows={2}
+                />
+              </div>
+
+              {/* 发送按钮 */}
+              <button
+                onClick={() => {
+                  if (!selectedDepartment) return;
+                  sendHandover({
+                    patientId: selectedPatient.id,
+                    department: selectedDepartment,
+                    doctorId: selectedDoctor || undefined,
+                    note: handoverNote || undefined,
+                    fromRole: '分诊台',
+                    fromHandler: '分诊台小王',
+                  });
+                  setHandoverSent(true);
+                }}
+                disabled={!selectedDepartment || handoverSent || !!selectedPatient.lastHandover}
+                className="w-full btn-secondary py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Send size={16} />
+                {handoverSent || selectedPatient.lastHandover
+                  ? `已发送至${selectedPatient.lastHandover?.toDoctorName || (selectedDepartment && DEPARTMENT_LABELS[selectedDepartment]) || '医生端'}`
+                  : selectedDepartment
+                    ? `发送交接单至 ${selectedDoctor ? selectedDoctorData?.name : DEPARTMENT_LABELS[selectedDepartment]}`
+                    : '请先选择分诊科室'}
+              </button>
+
+              {(handoverSent || selectedPatient.lastHandover) && (
+                <p className="text-xs text-neutral-400 text-center">
+                  {selectedPatient.lastHandover
+                    ? `发送时间：${new Date(selectedPatient.lastHandover.createdAt).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'})} · 发送人：${selectedPatient.lastHandover.fromHandler}`
+                    : `刚刚发送 · 发送人：分诊台小王`
+                  }
+                </p>
+              )}
+            </div>
+          </div>
 
           {/* 操作按钮 */}
           {!isConfirmed ? (
